@@ -1,0 +1,11 @@
+{
+  "SYNTH": {
+    "end": "2024-08-29",
+    "file": "SYNTH.csv",
+    "note": "generated data, not real prices",
+    "rows": 2520,
+    "sha256": "b3a89107598fb660131478db751bb44736aeb99984cd34c195c2276b7b50d457",
+    "source": "synthetic seed=7",
+    "start": "2015-01-02"
+  }
+}

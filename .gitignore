@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+results/
+reports/
+# real market data is downloaded locally, never redistributed
+data/*.csv
+!data/SYNTH.csv
