@@ -118,3 +118,13 @@ def test_fetch_script_with_fake_yfinance(tmp_path, monkeypatch):
     assert calls["end"] == "2024-01-05"                           # end made inclusive
     bars = load_csv(str(tmp_path / "AAPL.csv"))
     assert [b.date for b in bars] == ["2024-01-02", "2024-01-03"]  # NaN row dropped
+
+
+def test_top_drawdowns_episodes_hand():
+    from risklens.report import top_drawdowns
+    eq = [100, 90, 100, 120, 60, 80, 130, 125, 126]
+    d = [f"d{i}" for i in range(len(eq))]
+    rows = top_drawdowns(eq, d)
+    assert [round(r["depth"], 4) for r in rows] == [0.5, 0.1, round(1 - 125 / 130, 4)]
+    assert rows[0] == {"depth": 0.5, "peak": "d3", "trough": "d4", "recovered": "d6", "days": 3}
+    assert rows[2]["recovered"] is None                     # still below 130 at the end

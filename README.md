@@ -10,8 +10,16 @@ RiskLens answers two questions about a trading strategy:
    *with* risk controls (volatility targeting, an exposure cap and a drawdown
    circuit breaker), side by side.
 
-It also runs a **luck test**: is the strategy's timing better than random,
-or could a coin have done as well?
+It also runs a **luck test** (is the strategy's timing better than random,
+or could a coin have done as well?) and **stress tests** (how it did in real
+crises such as the 2008 crash, the COVID crash and the 2022 bear market,
+whenever they fall inside the data).
+
+The HTML report is organized into sections: summary with a plain-English
+verdict, drawdown ("underwater") chart with the 5 worst drawdowns, stress
+tests, growth, how much was invested each day, all metrics with a "what it
+means" column, the luck test, a log of every risk-rule event, and the
+method and reproducibility details.
 
 **Core claim: you can trust the numbers.** RiskLens
 
@@ -38,7 +46,7 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 55 tests, ~15 s
+python3 -m pytest -q         # 56 tests, ~15 s
 ./scripts/mutation_check.sh  # plants 11 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~50 s)
 ```
@@ -142,7 +150,7 @@ strengthened.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **55 tests pass** (`python3 -m pytest -q`, ~15 s; full output in
+Results: **56 tests pass** (`python3 -m pytest -q`, ~15 s; full output in
 `tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)

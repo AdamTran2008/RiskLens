@@ -6,7 +6,7 @@ real stock prices. It shows how risky the strategy really is (worst drawdown,
 Value-at-Risk, volatility) and what risk rules like a drawdown circuit breaker
 would have saved you. Its core promise is that you can trust the numbers: it
 physically can't see the future, the money balances to the cent every day,
-and every result is reproducible from a hash. We proved those with 55 tests,
+and every result is reproducible from a hash. We proved those with 56 tests,
 and when we planted 11 bugs, the tests caught all 11."
 
 ## Demo (2 minutes)
@@ -75,4 +75,4 @@ of the 2nd. That's exactly the kind of silent error that makes backtests lie."
 
 ## Numbers to know
 ~180,000 bars/s · 10-year run simulates in 12 ms · luck test 97% of time ·
-cached result 2 ms · 55 tests · 11/11 mutations caught · money in integer cents.
+cached result 2 ms · 56 tests · 11/11 mutations caught · money in integer cents.

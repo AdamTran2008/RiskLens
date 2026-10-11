@@ -41,7 +41,7 @@ can never be silently mixed with old results.
   checked every day, and an independent ledger replay rebuilds cash and
   shares from the trade list over hundreds of random markets.
 * **Risk rules always hold**, and every run is reproducible.
-* **55 tests**. A mutation script plants 11 realistic bugs and the tests
+* **56 tests**. A mutation script plants 11 realistic bugs and the tests
   catch **11/11**. The tests also caught two real bugs during the hackathon:
   a floating-point off-by-one in VaR, and a crash when a price rounds to $0.00.
 

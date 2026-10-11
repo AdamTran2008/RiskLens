@@ -203,32 +203,188 @@ def verdict(runs) -> str:
             f"{loss(best['summary']['max_drawdown'])}.")
 
 
-# ---------------------------------------------------------------- tables
+# ------------------------------------------------------------------ icons
+# Simple stroke icons (24x24 grid), drawn inline so the report works offline.
+_ICON_PATHS = {
+    "summary": '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 5-6"/>',
+    "shield": '<path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/>',
+    "wave": '<path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/>',
+    "gauge": '<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/>',
+    "up": '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    "down": '<path d="M3 7l6 6 4-4 8 8"/><path d="M15 17h6v-6"/>',
+    "bolt": '<path d="M13 3L4 14h7l-1 7 9-11h-7z"/>',
+    "pie": '<circle cx="12" cy="12" r="9"/><path d="M12 3v9h9"/>',
+    "table": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>',
+    "dice": '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01"/>',
+    "bell": '<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21a2 2 0 0 0 4 0"/>',
+    "lock": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+    "check": '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
+    "alert": '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+    "bulb": '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
+}
+
+
+def icon(name, cls="ic"):
+    return (f'<svg class="{cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" '
+            f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{_ICON_PATHS[name]}</svg>')
+
+
+def badge(good: bool, text_good="Better with rules", text_bad="Worse with rules"):
+    return (f'<span class="badge {"good" if good else "bad"}">{icon("check" if good else "alert", "bi")}'
+            f'{text_good if good else text_bad}</span>')
+
+
+def section(sid, ic, title, sub, body, explain=None):
+    tip = (f'<div class="explain">{icon("bulb", "ei")}<p>{explain}</p></div>' if explain else "")
+    return (f'<section class="card" id="{sid}"><header class="card-h"><span class="ib">{icon(ic)}</span>'
+            f'<div><h2>{title}</h2><p class="sub">{sub}</p></div></header>{body}{tip}</section>')
+
+
+# ---------------------------------------------------------- drawdown table
+def top_drawdowns(equity, dates, n=5):
+    """Distinct drawdown episodes (peak -> trough -> recovery), deepest first."""
+    eps = []
+    peak_i = 0
+    trough_i = 0
+    in_dd = False
+    for i, e in enumerate(equity):
+        if e >= equity[peak_i]:
+            if in_dd:
+                eps.append((peak_i, trough_i, i))
+                in_dd = False
+            peak_i = trough_i = i
+        else:
+            in_dd = True
+            if e < equity[trough_i]:
+                trough_i = i
+    if in_dd:
+        eps.append((peak_i, trough_i, None))
+    rows = []
+    for p, t, r in eps:
+        depth = 1 - equity[t] / equity[p]
+        if depth <= 0:
+            continue
+        rows.append({"depth": depth, "peak": dates[p], "trough": dates[t],
+                     "recovered": dates[r] if r is not None else None,
+                     "days": (r if r is not None else len(equity) - 1) - p})
+    rows.sort(key=lambda x: -x["depth"])
+    return rows[:n]
+
+
+def drawdown_tables(runs):
+    out = []
+    for k, r in enumerate(runs):
+        rows = top_drawdowns(r["series"]["equity"], r["series"]["dates"])
+        body = "".join(
+            f'<tr><td class="num">{i + 1}</td><td class="num strong">{loss(x["depth"])}</td>'
+            f'<td>{x["peak"]}</td><td>{x["trough"]}</td>'
+            f'<td>{x["recovered"] or "<span class=muted>not yet</span>"}</td>'
+            f'<td class="num">{x["days"]:,}</td></tr>' for i, x in enumerate(rows))
+        out.append(f'<div class="ddt"><h3><span class="sw s{k}bg"></span>{esc(short_label(r))}</h3>'
+                   f'<div class="scroll"><table><thead><tr><th class="num">#</th><th class="num">Fall</th>'
+                   f'<th>Peak</th><th>Bottom</th><th>Recovered</th><th class="num">Trading days</th>'
+                   f'</tr></thead><tbody>{body or "<tr><td colspan=6>No drawdowns</td></tr>"}'
+                   f'</tbody></table></div></div>')
+    return f'<div class="ddgrid">{"".join(out)}</div>'
+
+
+# ------------------------------------------------------------- stress tests
+# Peak and trough dates of the S&P 500 for well-known market sell-offs.
+STRESS_EVENTS = [
+    ("2008 financial crisis", "2007-10-09", "2009-03-09"),
+    ("2011 US credit downgrade", "2011-07-22", "2011-10-03"),
+    ("2015–16 China slowdown", "2015-07-20", "2016-02-11"),
+    ("Late-2018 sell-off", "2018-09-20", "2018-12-24"),
+    ("COVID crash", "2020-02-19", "2020-03-23"),
+    ("2022 bear market", "2022-01-03", "2022-10-12"),
+    ("2025 tariff shock", "2025-02-19", "2025-04-08"),
+]
+
+
+def _index_on_or_after(dates, d):
+    for i, x in enumerate(dates):
+        if x >= d:
+            return i
+    return None
+
+
+def stress_block(runs):
+    dates = runs[0]["series"]["dates"]
+    rows = []
+    for name, a, b in STRESS_EVENTS:
+        if a < dates[0] or b > dates[-1]:
+            continue
+        i, j = _index_on_or_after(dates, a), _index_on_or_after(dates, b)
+        if i is None or j is None or j <= i:
+            continue
+        close = runs[0]["series"]["close"]
+        asset = close[j] / close[i] - 1
+        cells = []
+        rets = []
+        for k, r in enumerate(runs):
+            eq = r["series"]["equity"]
+            ret = eq[j] / eq[i] - 1
+            rets.append(ret)
+            cells.append(f'<td class="num strong">{pct(ret, 1, signed=True)}</td>')
+        verdict = ""
+        if len(runs) == 2 and not has_rules(runs[0]) and has_rules(runs[1]):
+            saved = rets[1] - rets[0]
+            verdict = (f'<td>{badge(saved >= 0, f"{abs(saved) * 100:.1f} pts less loss", f"{abs(saved) * 100:.1f} pts more loss")}</td>')
+        rows.append(f'<tr><th>{name}<div class="muted small">{a} to {b}</div></th>'
+                    f'<td class="num">{pct(asset, 1, signed=True)}</td>{"".join(cells)}{verdict}</tr>')
+    if not rows:
+        return ('<p class="empty">None of the famous sell-offs fall inside this date range. '
+                'Download a longer history (for example from 2007) to see them.</p>')
+    head = "".join(f'<th class="num"><span class="sw s{k}bg"></span>{esc(short_label(r))}</th>'
+                   for k, r in enumerate(runs))
+    extra = "<th>Effect of the rules</th>" if len(runs) == 2 and has_rules(runs[1]) and not has_rules(runs[0]) else ""
+    note = ""
+    if runs[0]["config"]["symbol"] == "SYNTH":
+        note = ('<p class="note">SYNTH is generated test data, so these dates are only an '
+                'illustration. Use real data (SPY, AAPL) for meaningful stress tests.</p>')
+    return (f'<div class="scroll"><table class="stress"><thead><tr><th>Event</th>'
+            f'<th class="num">{esc(runs[0]["config"]["symbol"])} itself</th>{head}{extra}</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>{note}')
+
+
+# ---------------------------------------------------------------- metrics
 ROWS = [
     ("Return", [
-        ("Final value", lambda s: f"${s['final_equity']:,.0f}", "final_equity", +1),
-        ("Total return", lambda s: pct(s["total_return"]), "total_return", +1),
-        ("Annual return (CAGR)", lambda s: pct(s["cagr"]), "cagr", +1),
+        ("Final value", lambda s: f"${s['final_equity']:,.0f}", "final_equity", +1,
+         "What the starting money grew to."),
+        ("Total return", lambda s: pct(s["total_return"]), "total_return", +1,
+         "Gain over the whole period."),
+        ("Annual return (CAGR)", lambda s: pct(s["cagr"]), "cagr", +1,
+         "Average yearly growth rate."),
     ]),
     ("Risk", [
-        ("Max drawdown", lambda s: loss(s["max_drawdown"]), "max_drawdown", -1),
-        ("Worst fall, peak to trough", lambda s: f"{s['max_drawdown_peak']} to "
-         f"{s['max_drawdown_trough']}", None, 0),
+        ("Max drawdown", lambda s: loss(s["max_drawdown"]), "max_drawdown", -1,
+         "Biggest fall from a high point. The pain an investor would have lived through."),
         ("Days to recover", lambda s: "not recovered" if s["drawdown_recovery_days"] is None
-         and s["max_drawdown"] > 0 else f"{s['drawdown_recovery_days']}", None, 0),
-        ("Volatility (annual)", lambda s: pct(s["volatility"]), "volatility", -1),
-        ("1-day VaR, 95%", lambda s: loss(s["var_95"], 2), "var_95", -1),
-        ("1-day Expected Shortfall, 95%", lambda s: loss(s["cvar_95"], 2), "cvar_95", -1),
-        ("Worst single day", lambda s: loss(s["worst_day"]), "worst_day", -1),
+         and s["max_drawdown"] > 0 else f"{s['drawdown_recovery_days']}", None, 0,
+         "Trading days from the bottom back to the old high."),
+        ("Volatility (annual)", lambda s: pct(s["volatility"]), "volatility", -1,
+         "How bumpy the ride is. Typical yearly swing."),
+        ("1-day VaR, 95%", lambda s: loss(s["var_95"], 2), "var_95", -1,
+         "On the worst 1 in 20 days, you lose at least this much."),
+        ("1-day Expected Shortfall", lambda s: loss(s["cvar_95"], 2), "cvar_95", -1,
+         "Average loss on those worst 1 in 20 days."),
+        ("Worst single day", lambda s: loss(s["worst_day"]), "worst_day", -1,
+         "The single biggest one-day drop."),
     ]),
-    ("Risk-adjusted", [
-        ("Sharpe ratio (rf = 0)", lambda s: f"{s['sharpe']:.2f}", "sharpe", +1),
-        ("Sortino ratio", lambda s: f"{s['sortino']:.2f}", "sortino", +1),
+    ("Return per unit of risk", [
+        ("Sharpe ratio", lambda s: f"{s['sharpe']:.2f}", "sharpe", +1,
+         "Return divided by volatility. Higher is better; above 1 is very good."),
+        ("Sortino ratio", lambda s: f"{s['sortino']:.2f}", "sortino", +1,
+         "Like Sharpe, but only counts downside swings as risk."),
     ]),
-    ("Trading", [
-        ("Time in the market", lambda s: pct(s["time_in_market"], 0), None, 0),
-        ("Trades", lambda s: f"{s['trades']}", None, 0),
-        ("Fees and slippage paid", lambda s: f"${s['fees_paid']:,.0f}", None, 0),
+    ("Trading activity", [
+        ("Time in the market", lambda s: pct(s["time_in_market"], 0), None, 0,
+         "Share of days holding the stock."),
+        ("Trades", lambda s: f"{s['trades']}", None, 0, "Number of buy and sell orders."),
+        ("Fees paid", lambda s: f"${s['fees_paid']:,.0f}", None, 0,
+         "Trading fees, included in all results above."),
     ]),
 ]
 
@@ -238,19 +394,18 @@ def metrics_table(runs) -> str:
                    for k, r in enumerate(runs))
     body = []
     for group, rows in ROWS:
-        body.append(f'<tr class="group"><th colspan="{len(runs) + 1}">{group}</th></tr>')
-        for name, f, key, better in rows:
-            cells = []
+        body.append(f'<tr class="group"><th colspan="{len(runs) + 2}">{group}</th></tr>')
+        for name, f, key, better, meaning in rows:
             vals = [r["summary"][key] for r in runs] if key else None
             best = None
             if key and better and len(runs) > 1 and len(set(vals)) > 1:
                 best = vals.index(max(vals) if better > 0 else min(vals))
-            for k, r in enumerate(runs):
-                cls = "num best" if k == best else "num"
-                cells.append(f'<td class="{cls}">{esc(f(r["summary"]))}</td>')
-            body.append(f"<tr><th>{name}</th>{''.join(cells)}</tr>")
-    return (f'<div class="scroll"><table class="metrics"><thead><tr><th></th>{head}</tr></thead>'
-            f'<tbody>{"".join(body)}</tbody></table></div>')
+            cells = "".join(
+                f'<td class="num{" best" if k == best else ""}">{esc(f(r["summary"]))}</td>'
+                for k, r in enumerate(runs))
+            body.append(f'<tr><th>{name}</th>{cells}<td class="meaning">{meaning}</td></tr>')
+    return (f'<div class="scroll"><table class="metrics"><thead><tr><th>Metric</th>{head}'
+            f'<th>What it means</th></tr></thead><tbody>{"".join(body)}</tbody></table></div>')
 
 
 def luck_block(runs) -> str:
@@ -260,46 +415,52 @@ def luck_block(runs) -> str:
         if not lt:
             continue
         p = lt["p_value"]
-        if p < 0.05:
-            msg = (f"Only {p:.1%} of random timings did as well. The timing likely carries "
-                   f"real information.")
-        else:
-            msg = (f"{p:.0%} of random timings did at least as well, so this result is "
-                   f"consistent with luck.")
+        real = p < 0.05
+        msg = (f"Only {p:.1%} of random timings did as well, so the timing likely carries real "
+               f"information." if real else
+               f"{p:.0%} of random timings did at least as well, so the result is consistent with luck.")
         out.append(
-            f'<div class="luck"><p><span class="sw s{k}bg"></span><strong>{esc(short_label(r))}.</strong> '
-            f'Sharpe {lt["actual_sharpe_gross"]:.2f} before costs, against a median of '
+            f'<div class="luck"><div class="luck-h"><span class="sw s{k}bg"></span>'
+            f'<strong>{esc(short_label(r))}</strong>'
+            f'{badge(real, "Timing looks real", "Could be luck")}</div>'
+            f'<p>Sharpe {lt["actual_sharpe_gross"]:.2f} before costs, against a median of '
             f'{lt["random_median_sharpe"]:.2f} for {lt["trials"]:,} random timings. {msg}</p>'
-            f'<div class="pbar" aria-label="p-value {p:.3f}"><span class="thr" style="left:5%"></span>'
+            f'<div class="pbar" aria-label="p-value {p:.3f}"><span class="zone"></span>'
             f'<span class="dot s{k}bg" style="left:{min(99.5, p * 100):.1f}%"></span></div>'
             f'<div class="pscale"><span>0</span><span class="thrlab">0.05</span>'
-            f'<span>p = {p:.3f}</span><span>1</span></div></div>')
-    return "".join(out) or "<p>The luck test was not run.</p>"
+            f'<span class="pv">p = {p:.3f}</span><span>1</span></div></div>')
+    return "".join(out) or '<p class="empty">The luck test was not run.</p>'
 
 
 def events_block(runs) -> str:
     rows = []
-    names = {"DRAWDOWN_BREAKER": "Circuit breaker", "RESUME": "Trading resumed",
-             "UNPRICEABLE": "No order", "CASH_CLIP": "Order reduced"}
+    names = {"DRAWDOWN_BREAKER": ("alert", "Circuit breaker fired"),
+             "RESUME": ("check", "Trading resumed"),
+             "UNPRICEABLE": ("info", "No order (price rounds to $0)")}
     for k, r in enumerate(runs):
         for d, kind, detail in r["risk_events"]:
             if kind == "CASH_CLIP":
                 continue
-            rows.append(f'<tr><td class="date">{esc(d)}</td><td><span class="sw s{k}bg"></span>'
-                        f'{esc(names.get(kind, kind))}</td><td>{esc(detail)}</td></tr>')
+            ic, title = names.get(kind, ("info", kind))
+            rows.append(f'<li class="ev {kind.lower()}"><span class="evi">{icon(ic)}</span>'
+                        f'<div><div class="ev-t">{title} <span class="muted">· {esc(d)}</span></div>'
+                        f'<div class="ev-d"><span class="sw s{k}bg"></span>{esc(short_label(r))}: '
+                        f'{esc(detail)}</div></div></li>')
     if not rows:
-        return "<p>No risk rule had to step in.</p>"
-    shown = rows[:40]
-    more = (f'<p class="note">{len(rows) - 40} more events are in the run’s JSON result.</p>'
+        return '<p class="empty">No risk rule had to step in during this period.</p>'
+    more = (f'<p class="note">{len(rows) - 40} more events are in the run’s saved result.</p>'
             if len(rows) > 40 else "")
-    return (f'<div class="scroll"><table class="events"><thead><tr><th>Date</th><th>Event</th>'
-            f'<th>Detail</th></tr></thead><tbody>{"".join(shown)}</tbody></table></div>{more}')
+    return f'<ul class="timeline">{"".join(rows[:40])}</ul>{more}'
 
 
 # ----------------------------------------------------------------- render
 def render(runs: list[dict]) -> str:
     c0 = runs[0]["config"]
     s0 = runs[0]["summary"]
+    sym = esc(c0["symbol"])
+    period = f"{month_year(s0['start'])} to {month_year(s0['end'])}"
+    compare = len(runs) == 2 and not has_rules(runs[0]) and has_rules(runs[1])
+
     dd_svg, dd_data = _chart("dd", runs, [[-x for x in r["series"]["drawdown"]] for r in runs],
                              300, lambda v: "0%" if abs(v) < 1e-12 else pct(v, 0),
                              area=True, y_ceil=0.0)
@@ -310,48 +471,126 @@ def render(runs: list[dict]) -> str:
         s = r["series"]
         expo.append([(p * c / e if e else 0.0) for p, c, e in
                      zip(s["position"], s["close"], s["equity"])])
-    ex_svg, ex_data = _chart("ex", runs, expo, 150, lambda v: pct(v, 0),
+    ex_svg, ex_data = _chart("ex", runs, expo, 160, lambda v: pct(v, 0),
                              y_floor=0.0, y_ceil=1.0, events=False)
-
-    strip = ""
-    if len(runs) == 2:
-        a, b = runs[0]["summary"], runs[1]["summary"]
-        items = [("Max drawdown", loss(a["max_drawdown"]), loss(b["max_drawdown"]),
-                  b["max_drawdown"] < a["max_drawdown"]),
-                 ("Volatility", pct(a["volatility"]), pct(b["volatility"]),
-                  b["volatility"] < a["volatility"]),
-                 ("Sharpe ratio", f"{a['sharpe']:.2f}", f"{b['sharpe']:.2f}",
-                  b["sharpe"] > a["sharpe"]),
-                 ("Annual return", pct(a["cagr"]), pct(b["cagr"]), b["cagr"] > a["cagr"])]
-        cells = "".join(
-            f'<div class="cmp"><div class="cmp-name">{n}</div>'
-            f'<div class="cmp-vals"><span class="was">{x}</span><span class="arrow">to</span>'
-            f'<span class="now s1t">{y}</span></div>'
-            f'<div class="cmp-tag {"up" if good else "down"}">{"better" if good else "worse"} '
-            f'with rules</div></div>' for n, x, y, good in items)
-        strip = f'<section class="strip">{cells}</section>'
 
     legend = "".join(f'<span class="leg"><span class="sw s{k}bg"></span>{esc(label(r))}</span>'
                      for k, r in enumerate(runs))
     has_trips = any(e[1] == "DRAWDOWN_BREAKER" for r in runs for e in r["risk_events"])
-    trip_leg = ('<span class="leg"><span class="sw tripbg"></span>Circuit breaker fired, '
-                'shaded until trading resumed</span>' if has_trips else "")
+    trip_leg = ('<span class="leg"><span class="sw tripbg"></span>Circuit breaker fired '
+                '(shaded until trading resumed)</span>' if has_trips else "")
+
+    # ---- summary tiles
+    tiles = ""
+    if compare:
+        a, b = runs[0]["summary"], runs[1]["summary"]
+        items = [("shield", "Max drawdown", "Biggest fall from a peak",
+                  loss(a["max_drawdown"]), loss(b["max_drawdown"]), b["max_drawdown"] < a["max_drawdown"]),
+                 ("wave", "Volatility", "How bumpy the ride is",
+                  pct(a["volatility"]), pct(b["volatility"]), b["volatility"] < a["volatility"]),
+                 ("gauge", "Sharpe ratio", "Return per unit of risk",
+                  f"{a['sharpe']:.2f}", f"{b['sharpe']:.2f}", b["sharpe"] > a["sharpe"]),
+                 ("up", "Annual return", "Average yearly growth",
+                  pct(a["cagr"]), pct(b["cagr"]), b["cagr"] > a["cagr"])]
+        tiles = '<div class="tiles">' + "".join(
+            f'<div class="tile"><div class="tile-h"><span class="ti">{icon(ic)}</span>'
+            f'<div><div class="tile-n">{n}</div><div class="tile-s">{sub}</div></div></div>'
+            f'<div class="tile-v"><span class="was" title="No risk rules">{x}</span>'
+            f'<span class="to">→</span><span class="now">{y}</span></div>{badge(good)}</div>'
+            for ic, n, sub, x, y, good in items) + "</div>"
+    else:
+        s = runs[0]["summary"]
+        items = [("shield", "Max drawdown", loss(s["max_drawdown"])),
+                 ("wave", "Volatility", pct(s["volatility"])),
+                 ("gauge", "Sharpe ratio", f"{s['sharpe']:.2f}"),
+                 ("up", "Annual return", pct(s["cagr"]))]
+        tiles = '<div class="tiles">' + "".join(
+            f'<div class="tile"><div class="tile-h"><span class="ti">{icon(ic)}</span>'
+            f'<div class="tile-n">{n}</div></div><div class="tile-v"><span class="now">{v}</span></div></div>'
+            for ic, n, v in items) + "</div>"
+
+    summary_explain = None
+    if compare:
+        a, b = runs[0]["summary"], runs[1]["summary"]
+        cut = (a["max_drawdown"] - b["max_drawdown"]) * 100
+        dr = (b["cagr"] - a["cagr"]) * 100
+        if dr < 0:
+            summary_explain = (
+                f"Risk management is a trade: you usually give up some return to avoid deep losses. "
+                f"Here the rules changed the worst fall by {cut:.1f} percentage points and cost "
+                f"{abs(dr):.1f} points of annual return.")
+        else:
+            summary_explain = (
+                f"Here the rules changed the worst fall by {cut:.1f} percentage points and annual "
+                f"return also improved by {dr:.1f} points. Risk control does not always cost "
+                f"return, but expect it to in strong, steady bull markets.")
+
+    nav_items = [("summary", "Summary"), ("drawdowns", "Drawdowns"), ("stress", "Stress tests"),
+                 ("growth", "Growth"), ("invested", "Invested"), ("metrics", "All metrics"),
+                 ("luck", "Luck test"), ("log", "Rule log"), ("method", "Method")]
+    nav = "".join(f'<a href="#{i}">{t}</a>' for i, t in nav_items)
+
+    body = "".join([
+        section("summary", "summary", "Summary",
+                f"{esc(strategy_name(runs[0]))} strategy on {sym}, {period}, starting with "
+                f"${c0['initial_cash']:,.0f}.",
+                f'<p class="verdict">{esc(verdict(runs))}</p>{tiles}', summary_explain),
+        section("drawdowns", "down", "Drawdowns: how deep did it fall?",
+                "The percentage lost since the last high point, every day.",
+                f'<div class="legend">{legend}{trip_leg}</div>'
+                f'<div class="figure">{dd_svg}<div class="tip" id="dd-tip"></div></div>'
+                f'<h3 class="h3">The 5 worst drawdowns</h3>{drawdown_tables(runs)}',
+                "Read it like water depth: the line sits at 0% when the money is at a new high "
+                "and dips below whenever it is losing. Deeper and longer dips are what risk "
+                "management tries to prevent. Orange triangles mark the days the circuit breaker fired."),
+        section("stress", "bolt", "Stress tests: what happened in famous crashes?",
+                f"Return over each sell-off, from the market's peak to its bottom.",
+                stress_block(runs),
+                "A stress test asks how a strategy would have survived a real crisis. These "
+                "windows use the S&P 500's peak and bottom dates for each event."),
+        section("growth", "up", f"Growth of ${c0['initial_cash']:,.0f}",
+                "Account value over time, after fees.",
+                f'<div class="figure">{eq_svg}<div class="tip" id="eq-tip"></div></div>'),
+        section("invested", "pie", "How much was invested",
+                f"Share of the money held in {sym} each day.",
+                f'<div class="figure">{ex_svg}<div class="tip" id="ex-tip"></div></div>',
+                "The risk rules hold less when the market is wild (volatility targeting) and step "
+                "out completely for a while after a large loss (circuit breaker)."),
+        section("metrics", "table", "All metrics",
+                f"Daily data, 252 trading days a year. Fees {c0['costs']['fee_bps']:g} bp and "
+                f"slippage {c0['costs']['slippage_bps']:g} bp per trade. Bold marks the better value.",
+                metrics_table(runs)),
+        section("luck", "dice", "Luck test: is the timing better than random?",
+                f"We shuffle which days the strategy was invested "
+                f"{(runs[0]['luck_test'] or {}).get('trials', 0):,} times and compare.",
+                luck_block(runs),
+                "If random timing often does as well as the strategy, its results could be luck. "
+                "A p-value under 0.05 (the shaded zone) suggests the timing is real."),
+        section("log", "bell", "Risk-rule log",
+                "Every time a risk rule stepped in.", events_block(runs)),
+        section("method", "lock", "Method and reproducibility",
+                "How the numbers are made, and how to check them.",
+                '<ul class="method"><li>Orders decided at a day’s close fill at the <b>next day’s '
+                'open</b>, so the strategy never uses prices it could not have known.</li>'
+                '<li>Money is counted in whole cents and checked every day: cash, shares and fees '
+                'always add up.</li><li>Each run ID is a fingerprint of the settings, the exact '
+                'data file and the engine code. The same inputs always give the identical result.</li>'
+                '</ul><div class="scroll"><table class="mono"><thead><tr><th>Run</th><th>Run ID</th>'
+                '<th>Data SHA-256</th><th>Engine</th></tr></thead><tbody>' + "".join(
+                    f'<tr><td><span class="sw s{k}bg"></span>{esc(short_label(r))}</td>'
+                    f'<td><code>{r["run_id"]}</code></td>'
+                    f'<td><code>{r["manifest"]["dataset_sha256"][:16]}…</code></td>'
+                    f'<td><code>{r["manifest"]["engine_version"]}</code></td></tr>'
+                    for k, r in enumerate(runs)) + '</tbody></table></div>'),
+    ])
 
     css_series = "".join(f".s{k}{{stroke:{c[0]}}}.s{k}f{{fill:{c[0]}}}.s{k}bg{{background:{c[0]}}}"
-                         f".s{k}t{{color:{c[0]}}}" for k, c in enumerate(SERIES))
+                         for k, c in enumerate(SERIES))
     css_series_dark = "".join(f".s{k}{{stroke:{c[1]}}}.s{k}f{{fill:{c[1]}}}.s{k}bg{{background:{c[1]}}}"
-                              f".s{k}t{{color:{c[1]}}}" for k, c in enumerate(SERIES))
-    manifest_rows = "".join(
-        f'<tr><td><span class="sw s{k}bg"></span>{esc(short_label(r))}</td>'
-        f'<td><code>{r["run_id"]}</code></td>'
-        f'<td><code>{r["manifest"]["dataset_sha256"][:16]}</code></td>'
-        f'<td><code>{r["manifest"]["engine_version"]}</code></td>'
-        f'<td><code>{r["manifest"]["result_fingerprint"][:16]}</code></td></tr>'
-        for k, r in enumerate(runs))
+                              for k, c in enumerate(SERIES))
     data_json = json.dumps({"dd": dd_data, "eq": eq_data, "ex": ex_data,
                             "labels": [short_label(r) for r in runs]})
-    sym = esc(c0["symbol"])
-    period = f"{month_year(s0['start'])} to {month_year(s0['end'])}"
+    accent = SERIES[1][0]
 
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -360,114 +599,104 @@ def render(runs: list[dict]) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{{color-scheme:light;--bg:#fbfcfd;--panel:#ffffff;--ink:#14213d;--ink2:#4a5568;--ink3:#7b8796;
---rule:#dde3ea;--grid:#e8edf2;--halt:rgba(199,119,0,.10);--trip:#c77700;--good:#0f7b4f;--bad:#b3261e}}
-@media (prefers-color-scheme:dark){{:root{{color-scheme:dark;--bg:#0f151c;--panel:#151d26;--ink:#e6ebf0;
---ink2:#b3bdc8;--ink3:#7f8b98;--rule:#26313c;--grid:#1f2933;--halt:rgba(240,170,60,.12);--trip:#f0aa3c;
---good:#4cc38a;--bad:#ff8a80}}}}
+:root{{color-scheme:light;--bg:#f3f6f9;--panel:#ffffff;--ink:#14213d;--ink2:#4a5568;--ink3:#7b8796;
+--rule:#e1e7ee;--grid:#edf1f5;--halt:rgba(199,119,0,.12);--trip:#c77700;--good:#0f7b4f;--goodbg:#e6f4ec;
+--bad:#b3261e;--badbg:#fbeaea;--accent:{accent};--accentbg:#e3f2f1;--tipbg:#f6f9fb}}
+@media (prefers-color-scheme:dark){{:root{{color-scheme:dark;--bg:#0c1117;--panel:#141b23;--ink:#e6ebf0;
+--ink2:#b3bdc8;--ink3:#7f8b98;--rule:#253039;--grid:#1d2630;--halt:rgba(240,170,60,.14);--trip:#f0aa3c;
+--good:#4cc38a;--goodbg:#13281e;--bad:#ff8a80;--badbg:#2e1716;--accent:{SERIES[1][1]};--accentbg:#12302e;--tipbg:#18212b}}}}
 {css_series}
 @media (prefers-color-scheme:dark){{{css_series_dark}}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+*{{box-sizing:border-box}} html{{scroll-behavior:smooth}}
+body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 font-variant-numeric:tabular-nums}}
-main{{max-width:1040px;margin:0 auto;padding:40px 24px 64px}}
-.product{{font-weight:600;font-size:15px;color:var(--ink2);margin:0 0 28px;display:flex;gap:10px;align-items:center}}
-.product i{{display:inline-block;width:18px;height:18px;border-radius:50%;border:3px solid {SERIES[1][0]};}}
-.context{{color:var(--ink2);margin:0 0 6px;font-size:15px}}
-h1{{font-size:32px;line-height:1.25;font-weight:500;margin:0 0 28px;max-width:30ch;letter-spacing:-.01em}}
-h2{{font-size:19px;font-weight:600;margin:48px 0 6px}}
-.sub{{color:var(--ink2);margin:0 0 14px;font-size:15px;max-width:70ch}}
-.legend{{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:14px;color:var(--ink2);margin:0 0 10px}}
+.top{{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--rule)}}
+.top-in{{max-width:1080px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:24px}}
+.brand{{display:flex;align-items:center;gap:10px;font-weight:600;white-space:nowrap}}
+.brand svg{{width:26px;height:26px;color:var(--accent)}}
+.brand small{{font-weight:400;color:var(--ink2)}}
+nav{{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}}
+nav a{{color:var(--ink2);text-decoration:none;font-size:14px;padding:6px 10px;border-radius:8px;white-space:nowrap}}
+nav a:hover,nav a:focus-visible{{background:var(--accentbg);color:var(--ink);outline:none}}
+main{{max-width:1080px;margin:0 auto;padding:28px 24px 64px}}
+.card{{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:28px 30px;margin:0 0 22px;scroll-margin-top:72px}}
+.card-h{{display:flex;gap:16px;align-items:flex-start;margin-bottom:18px}}
+.ib{{flex:none;width:44px;height:44px;border-radius:12px;background:var(--accentbg);color:var(--accent);display:grid;place-items:center}}
+.ic{{width:24px;height:24px}}
+h2{{font-size:21px;line-height:1.3;font-weight:600;margin:2px 0 2px}}
+.h3,h3{{font-size:16px;font-weight:600;margin:28px 0 10px}}
+.sub{{color:var(--ink2);margin:0;font-size:15px}}
+.verdict{{font-size:24px;line-height:1.4;font-weight:500;margin:4px 0 24px;max-width:36ch}}
+.tiles{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}}
+.tile{{border:1px solid var(--rule);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}}
+.tile-h{{display:flex;gap:10px;align-items:center}}
+.ti{{width:34px;height:34px;border-radius:10px;background:var(--tipbg);color:var(--ink2);display:grid;place-items:center;flex:none}}
+.ti svg{{width:20px;height:20px}}
+.tile-n{{font-weight:600;font-size:15px;line-height:1.2}} .tile-s{{font-size:13px;color:var(--ink3)}}
+.tile-v{{display:flex;align-items:baseline;gap:8px;white-space:nowrap}}
+.was{{color:var(--ink3);font-size:16px}} .to{{color:var(--ink3)}}
+.now{{font-size:26px;font-weight:600;color:var(--accent);letter-spacing:-.01em}}
+.badge{{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:3px 10px 3px 6px;border-radius:999px;align-self:flex-start;white-space:nowrap}}
+.badge.good{{background:var(--goodbg);color:var(--good)}} .badge.bad{{background:var(--badbg);color:var(--bad)}}
+.bi{{width:16px;height:16px}}
+.explain{{display:flex;gap:12px;align-items:flex-start;background:var(--tipbg);border-radius:12px;padding:14px 16px;margin-top:20px}}
+.explain p{{margin:0;color:var(--ink2);font-size:15px}} .ei{{width:22px;height:22px;flex:none;color:var(--trip)}}
+.legend{{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:14px;color:var(--ink2);margin:0 0 12px}}
 .leg{{display:inline-flex;align-items:center}}
 .sw{{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;flex:none;vertical-align:-1px}}
 .tripbg{{background:var(--halt);border:2px solid var(--trip)}}
-.figure{{position:relative;background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:14px 12px 6px}}
+.figure{{position:relative;border:1px solid var(--rule);border-radius:12px;padding:14px 12px 6px}}
 .chart{{display:block;width:100%;height:auto;overflow:visible}}
-.grid{{stroke:var(--grid);stroke-width:1}} .grid.zero{{stroke:var(--ink3)}}
-.ytick{{stroke:var(--ink3)}}
+.grid{{stroke:var(--grid);stroke-width:1}} .grid.zero{{stroke:var(--ink3)}} .ytick{{stroke:var(--ink3)}}
 .tick{{fill:var(--ink3);font-size:12px}}
-.line{{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}}
-.fill{{opacity:.16;stroke:none}}
+.line{{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}} .fill{{opacity:.16;stroke:none}}
 .halt{{fill:var(--halt)}} .trip{{fill:var(--trip)}}
-.xhair{{stroke:var(--ink3);stroke-width:1;stroke-dasharray:3 3}}
-.hit{{fill:transparent;cursor:crosshair}}
+.xhair{{stroke:var(--ink3);stroke-width:1;stroke-dasharray:3 3}} .hit{{fill:transparent;cursor:crosshair}}
 .tip{{position:absolute;top:10px;pointer-events:none;background:var(--panel);border:1px solid var(--rule);
-border-radius:8px;padding:8px 10px;font-size:13px;display:none;box-shadow:0 4px 14px rgba(0,0,0,.08);min-width:150px}}
+border-radius:10px;padding:8px 10px;font-size:13px;display:none;box-shadow:0 6px 18px rgba(0,0,0,.10);min-width:160px}}
 .tip b{{display:block;margin-bottom:4px;font-weight:600}}
 .tip div{{display:flex;align-items:center;justify-content:space-between;gap:12px}}
-.strip{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:22px 0 0;
-border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}}
-.cmp{{padding:16px 18px 14px 0}} .cmp+.cmp{{padding-left:18px;border-left:1px solid var(--rule)}}
-.cmp-name{{font-size:14px;color:var(--ink2)}}
-.cmp-vals{{display:flex;align-items:baseline;gap:8px;margin:4px 0 2px;flex-wrap:wrap}}
-.was{{color:var(--ink3);font-size:17px;text-decoration:line-through;text-decoration-color:var(--rule)}}
-.arrow{{color:var(--ink3);font-size:13px}}
-.now{{font-size:26px;font-weight:600;letter-spacing:-.01em}}
-.cmp-tag{{font-size:13px}} .cmp-tag.up{{color:var(--good)}} .cmp-tag.down{{color:var(--bad)}}
 .scroll{{overflow-x:auto}}
 table{{border-collapse:collapse;width:100%;font-size:15px}}
-th,td{{text-align:left;padding:8px 12px;border-bottom:1px solid var(--rule);vertical-align:top}}
-thead th{{font-weight:600;font-size:14px;color:var(--ink2);border-bottom:2px solid var(--rule)}}
-tbody th{{font-weight:400;color:var(--ink2)}}
-.num{{text-align:right;white-space:nowrap}}
-td.best{{font-weight:600}}
-tr.group th{{font-weight:600;color:var(--ink);padding-top:20px;border-bottom:1px solid var(--rule)}}
-.metrics td,.metrics thead th.num{{min-width:150px}}
-.events td.date{{white-space:nowrap;color:var(--ink2)}}
-.luck{{margin:0 0 22px;max-width:760px}} .luck p{{margin:0 0 10px}}
-.pbar{{position:relative;height:8px;border-radius:4px;background:var(--grid)}}
-.pbar .thr{{position:absolute;top:-4px;width:2px;height:16px;background:var(--ink3)}}
-.pbar .dot{{position:absolute;top:-4px;width:16px;height:16px;border-radius:50%;margin-left:-8px;border:2px solid var(--panel)}}
-.pscale{{display:flex;justify-content:space-between;font-size:12px;color:var(--ink3);margin-top:6px;position:relative}}
-.thrlab{{position:absolute;left:5%;transform:translateX(-50%)}}
-.note{{color:var(--ink2);font-size:14px;max-width:70ch}}
-details{{margin-top:48px;border-top:1px solid var(--rule);padding-top:14px}}
-summary{{cursor:pointer;font-weight:600}}
-summary:focus-visible,.hit:focus-visible{{outline:2px solid {SERIES[1][0]};outline-offset:3px}}
+th,td{{text-align:left;padding:10px 12px;border-bottom:1px solid var(--rule);vertical-align:top}}
+thead th{{font-weight:600;font-size:13px;color:var(--ink2);background:var(--tipbg)}}
+thead th:first-child{{border-top-left-radius:8px}} thead th:last-child{{border-top-right-radius:8px}}
+tbody th{{font-weight:500}}
+.num{{text-align:right;white-space:nowrap}} .strong{{font-weight:600}} td.best{{font-weight:600;color:var(--accent)}}
+.muted{{color:var(--ink3)}} .small{{font-size:13px;font-weight:400}}
+tr.group th{{font-weight:600;color:var(--accent);padding-top:22px;font-size:14px}}
+.meaning{{color:var(--ink2);font-size:14px;min-width:240px}}
+.ddgrid{{display:grid;grid-template-columns:1fr;gap:22px}} .ddt td{{white-space:nowrap}}
+.ddt h3{{margin:0 0 8px;font-size:15px}}
+.stress td .badge{{font-size:12px}}
+.luck{{border:1px solid var(--rule);border-radius:12px;padding:16px 18px;margin:0 0 14px}}
+.luck-h{{display:flex;align-items:center;gap:6px;margin-bottom:6px}} .luck-h .badge{{margin-left:auto}}
+.luck p{{margin:0 0 14px;color:var(--ink2);font-size:15px}}
+.pbar{{position:relative;height:10px;border-radius:5px;background:var(--grid)}}
+.pbar .zone{{position:absolute;left:0;top:0;bottom:0;width:5%;background:var(--goodbg);border-right:2px solid var(--good);border-radius:5px 0 0 5px}}
+.pbar .dot{{position:absolute;top:-5px;width:20px;height:20px;border-radius:50%;margin-left:-10px;border:3px solid var(--panel)}}
+.pscale{{display:flex;justify-content:space-between;font-size:12px;color:var(--ink3);margin-top:8px;position:relative}}
+.thrlab{{position:absolute;left:5%;transform:translateX(-50%)}} .pv{{color:var(--ink);font-weight:500}}
+.timeline{{list-style:none;padding:0;margin:0}}
+.ev{{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--rule)}}
+.evi{{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--tipbg);color:var(--ink2)}}
+.evi svg{{width:18px;height:18px}}
+.ev.drawdown_breaker .evi{{background:var(--halt);color:var(--trip)}} .ev.resume .evi{{background:var(--goodbg);color:var(--good)}}
+.ev-t{{font-weight:600}} .ev-d{{color:var(--ink2);font-size:14px}}
+.empty{{color:var(--ink2);background:var(--tipbg);border-radius:10px;padding:14px 16px;margin:0}}
+.note{{color:var(--ink2);font-size:14px;margin:12px 0 0}}
+.method{{margin:0 0 18px;padding-left:20px;color:var(--ink2)}} .method li{{margin:4px 0}}
 code{{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}}
-@media (max-width:720px){{h1{{font-size:24px}} .strip{{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.cmp:nth-child(3){{border-left:0;padding-left:0}} .cmp:nth-child(n+3){{border-top:1px solid var(--rule)}}
-main{{padding:24px 16px 48px}}}}
-</style></head><body><main>
-<div class="product"><i></i>RiskLens</div>
-<p class="context">{sym}, {period}. {esc(strategy_name(runs[0]))} strategy on ${c0['initial_cash']:,.0f}.</p>
-<h1>{esc(verdict(runs))}</h1>
-
-<h2>How far below its peak was the money?</h2>
-<p class="sub">Each dip is a drawdown: the percentage lost since the last high point. Deeper and
-longer dips are what risk management tries to prevent.</p>
-<div class="legend">{legend}{trip_leg}</div>
-<div class="figure">{dd_svg}<div class="tip" id="dd-tip"></div></div>
-{strip}
-
-<h2>Growth of ${c0['initial_cash']:,.0f}</h2>
-<div class="figure">{eq_svg}<div class="tip" id="eq-tip"></div></div>
-
-<h2>How much was invested</h2>
-<p class="sub">Share of the money held in {sym} each day. The risk rules hold less when the market is
-volatile and step out entirely after a breaker trip.</p>
-<div class="figure">{ex_svg}<div class="tip" id="ex-tip"></div></div>
-
-<h2>All metrics</h2>
-<p class="sub">Daily data, 252 trading days per year. Orders decided at a close fill at the next
-day’s open. Fees {c0['costs']['fee_bps']:g} bp and slippage {c0['costs']['slippage_bps']:g} bp per trade.
-Bold marks the better value.</p>
-{metrics_table(runs)}
-
-<h2>Luck test: is the timing better than random?</h2>
-<p class="sub">We shuffle which days the strategy was invested, keeping how much it was invested,
-and re-score it many times. If random timing often does as well, the result could be luck.</p>
-{luck_block(runs)}
-
-<h2>Risk-rule log</h2>
-{events_block(runs)}
-
-<details><summary>Reproducibility</summary>
-<p class="note">Each run ID is a hash of the settings, the exact data file and the engine code.
-The same three inputs always give the same ID and the identical result.</p>
-<div class="scroll"><table><thead><tr><th>Run</th><th>Run ID</th><th>Data SHA-256</th>
-<th>Engine</th><th>Result fingerprint</th></tr></thead><tbody>{manifest_rows}</tbody></table></div>
-</details>
+footer{{text-align:center;color:var(--ink3);font-size:13px;margin-top:8px}}
+:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}
+@media (max-width:980px){{.tiles{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media (max-width:560px){{.card{{padding:20px 16px}} .verdict{{font-size:19px}} .tiles{{grid-template-columns:1fr}}
+.top-in{{padding:10px 16px;gap:12px}} .brand small{{display:none}} main{{padding:18px 12px 48px}}}}
+</style></head><body>
+<div class="top"><div class="top-in"><div class="brand">{icon("shield")}RiskLens <small>{sym} risk report</small></div>
+<nav aria-label="Report sections">{nav}</nav></div></div>
+<main>{body}
+<footer>Generated by RiskLens. Simulated results on historical data, not investment advice.</footer>
 </main>
 <script>
 const D={data_json};
