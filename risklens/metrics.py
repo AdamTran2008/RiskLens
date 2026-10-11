@@ -10,6 +10,7 @@ import bisect
 import math
 import random
 from operator import mul
+from statistics import NormalDist
 
 TRADING_DAYS = 252
 
@@ -150,8 +151,142 @@ def rolling_var(returns: list[float], level: float, window: int) -> list[float]:
     return out
 
 
+# ------------------------------------------------------------ VaR models
+# Four ways to forecast tomorrow's VaR. Each forecast for day t uses only
+# returns before day t (tested for every model). The VaR check then grades
+# them on the same days with the same tests.
+VAR_MODELS = {
+    "historical": "Historical simulation (250 days)",
+    "normal": "Normal distribution (250 days)",
+    "ewma": "EWMA volatility (RiskMetrics, λ = 0.94)",
+    "fhs": "Filtered historical (EWMA + past shocks)",
+}
+EWMA_LAMBDA = 0.94          # J.P. Morgan RiskMetrics (1996) daily decay
+EWMA_SEED_DAYS = 20         # recursion starts here; by day 250 the seed weighs 0.94^230 ~ 1e-6
+
+
+def _z(level: float) -> float:
+    """Standard normal quantile for the loss tail, e.g. -1.645 at 95%."""
+    return NormalDist().inv_cdf(1 - level)
+
+
+def normal_var(returns: list[float], level: float, window: int) -> list[float]:
+    """VaR_t = -(mean + z * sd) of returns[t-window:t] (sample sd). Assumes
+    returns are normal: no fat tails."""
+    z = _z(level)
+    out = []
+    for t in range(window, len(returns)):
+        w = returns[t - window:t]
+        m = math.fsum(w) / window
+        sd = math.sqrt(math.fsum((x - m) ** 2 for x in w) / (window - 1))
+        out.append(-(m + z * sd))
+    return out
+
+
+def ewma_sigma(returns: list[float], lam: float = EWMA_LAMBDA,
+               seed_days: int = EWMA_SEED_DAYS) -> list[float | None]:
+    """RiskMetrics volatility: sigma2[t] = lam * sigma2[t-1] + (1 - lam) * r[t-1]^2,
+    zero mean. sigma[t] is the forecast for day t made with returns up to
+    day t-1; None before ``seed_days`` (seeded with their mean square)."""
+    n = len(returns)
+    out: list[float | None] = [None] * n
+    if n <= seed_days:
+        return out
+    var = math.fsum(r * r for r in returns[:seed_days]) / seed_days
+    for t in range(seed_days, n):
+        out[t] = math.sqrt(var)
+        var = lam * var + (1 - lam) * returns[t] * returns[t]    # include day t only after forecasting it
+    return out
+
+
+def ewma_var(returns: list[float], level: float, window: int, sig=None) -> list[float]:
+    """VaR_t = -z * sigma_t: reacts within days when volatility jumps."""
+    sig = sig or ewma_sigma(returns)
+    z = _z(level)
+    return [-z * sig[t] for t in range(window, len(returns))]
+
+
+def fhs_var(returns: list[float], level: float, window: int, sig=None) -> list[float]:
+    """Filtered historical simulation: rescale the past ``window`` days'
+    shocks (return / that day's EWMA sigma) to today's sigma, then take the
+    historical quantile. Keeps fat tails from history and reacts like EWMA."""
+    sig = sig or ewma_sigma(returns)
+    first = next((t for t, s in enumerate(sig) if s), None)
+    if first is None or first >= window:
+        raise ValueError("not enough days to seed EWMA before the first forecast")
+    win = sorted(returns[s] / sig[s] for s in range(max(first, 0), window))
+    out = []
+    for t in range(window, len(returns)):
+        k = max(1, math.ceil(round((1 - level) * len(win), 9)))
+        out.append(-sig[t] * win[k - 1])
+        bisect.insort(win, returns[t] / sig[t])
+        old = t - window
+        if old >= first:
+            win.pop(bisect.bisect_left(win, returns[old] / sig[old]))
+    return out
+
+
+def var_forecasts(returns: list[float], level: float, window: int, model: str,
+                  sig=None) -> list[float]:
+    if model == "historical":
+        return rolling_var(returns, level, window)
+    if model == "normal":
+        return normal_var(returns, level, window)
+    if model == "ewma":
+        return ewma_var(returns, level, window, sig)
+    if model == "fhs":
+        return fhs_var(returns, level, window, sig)
+    raise ValueError(f"unknown VaR model {model}")
+
+
+def chi2_2_sf(x: float) -> float:
+    """P(X > x) for chi-square with 2 degrees of freedom."""
+    return math.exp(-max(x, 0.0) / 2)
+
+
+def _basel(hits: list[bool], tdates: list[str]) -> dict | None:
+    """Basel traffic light over every 250-test-day window (defined for 99% VaR)."""
+    n = len(hits)
+    if n < 250:
+        return None
+    c = sum(hits[:250])
+    counts = [c]
+    for i in range(250, n):
+        c += hits[i] - hits[i - 250]
+        counts.append(c)
+    zones = [basel_zone(v) for v in counts]
+    worst = max(range(len(counts)), key=lambda i: counts[i])
+    return {"last_250": counts[-1], "zone": zones[-1], "worst_250": counts[worst],
+            "worst_end": tdates[worst + 249],
+            "share": {z: zones.count(z) / len(zones) for z in ("green", "yellow", "red")}}
+
+
+def grade_var(hits: list[bool], level: float, forecasts: list[float], tdates: list[str]) -> dict:
+    """The tests a bank must run on its VaR: Kupiec (is the number of
+    breaches right?), Christoffersen (are breaches independent, or do they
+    cluster?), both together (conditional coverage), and at 99% the Basel
+    traffic light."""
+    n, x = len(hits), sum(hits)
+    p = 1 - level
+    k_lr, k_p = kupiec_pof(n, x, p)
+    c_lr, c_p = christoffersen_ind(hits)
+    rate = x / n if n else 0.0
+    verdict = ("accurate" if k_p >= 0.05 else "too optimistic" if rate > p else "too cautious")
+    out = {"days": n, "expected": p * n, "exceptions": x, "rate": rate,
+           "kupiec_lr": k_lr, "kupiec_p": k_p, "christoffersen_lr": c_lr, "christoffersen_p": c_p,
+           "clustered": c_p < 0.05, "cc_lr": k_lr + c_lr, "cc_p": chi2_2_sf(k_lr + c_lr),
+           "avg_var": math.fsum(forecasts) / n if n else 0.0,
+           "verdict": verdict, "passes": k_p >= 0.05 and c_p >= 0.05}
+    if level >= 0.99:
+        b = _basel(hits, tdates)
+        if b:
+            out["basel"] = b
+    return out
+
+
 def var_backtest(returns: list[float], dates: list[str], level: float = 0.95,
-                 window: int = 250, keep_series: bool = False) -> dict | None:
+                 window: int = 250, keep_series: bool = False, model: str = "historical",
+                 sig=None) -> dict | None:
     """Was the VaR right? Each day, forecast VaR from the previous ``window``
     days only, then check whether that day's loss was bigger (an exception).
     A correct 95% VaR is exceeded on about 5% of days, independently.
@@ -160,43 +295,71 @@ def var_backtest(returns: list[float], dates: list[str], level: float = 0.95,
     enough days to test (window + 50)."""
     if len(returns) < window + 50:
         return None
-    fc = rolling_var(returns, level, window)
+    fc = var_forecasts(returns, level, window, model, sig)
     test = returns[window:]
     tdates = dates[window:]
     hits = [-r > v for r, v in zip(test, fc)]
-    n, x = len(test), sum(hits)
-    p = 1 - level
-    k_lr, k_p = kupiec_pof(n, x, p)
-    c_lr, c_p = christoffersen_ind(hits)
-    rate = x / n
-    if k_p >= 0.05:
-        verdict = "accurate"
-    else:
-        verdict = "too optimistic" if rate > p else "too cautious"
-    out = {
-        "level": level, "window": window, "days": n, "expected": p * n, "exceptions": x,
-        "rate": rate, "kupiec_lr": k_lr, "kupiec_p": k_p,
-        "christoffersen_lr": c_lr, "christoffersen_p": c_p, "clustered": c_p < 0.05,
-        "verdict": verdict,
-        "exception_dates": [d for d, h in zip(tdates, hits) if h],
-    }
-    # Basel traffic light: exceptions in each 250-day window (defined for 99% VaR)
-    if n >= 250 and level >= 0.99:
-        c = sum(hits[:250])
-        counts = [c]
-        for i in range(250, n):
-            c += hits[i] - hits[i - 250]
-            counts.append(c)
-        zones = [basel_zone(v) for v in counts]
-        worst = max(range(len(counts)), key=lambda i: counts[i])
-        out["basel"] = {
-            "last_250": counts[-1], "zone": zones[-1],
-            "worst_250": counts[worst], "worst_end": tdates[worst + 249],
-            "share": {z: zones.count(z) / len(zones) for z in ("green", "yellow", "red")},
-        }
+    out = {"model": model, "level": level, "window": window,
+           **grade_var(hits, level, fc, tdates),
+           "exception_dates": [d for d, h in zip(tdates, hits) if h]}
     if keep_series:
         out["series"] = {"dates": tdates, "ret": [round(r, 6) for r in test],
                          "var": [round(v, 6) for v in fc]}
+    return out
+
+
+# Which way of measuring risk is right? Two families:
+#   account history: VaR from the strategy's own daily P&L (what most
+#     backtesters report). When the strategy sits in cash its P&L is zero,
+#     so this VaR shrinks, and is far too small the day it buys back in.
+#   position x stock: today's exposure (known at today's close: what we hold
+#     tonight, or will hold tomorrow if larger) times the stock's own VaR.
+#     This is how a risk desk sizes risk: from positions, not past P&L.
+RISK_MODELS = {
+    "pnl_hist": ("Account history · historical", "pnl", "historical"),
+    "pnl_ewma": ("Account history · EWMA", "pnl", "ewma"),
+    "pos_hist": ("Position × stock · historical", "pos", "historical"),
+    "pos_normal": ("Position × stock · normal", "pos", "normal"),
+    "pos_ewma": ("Position × stock · EWMA (RiskMetrics)", "pos", "ewma"),
+    "pos_fhs": ("Position × stock · filtered historical", "pos", "fhs"),
+}
+
+
+def compare_risk_models(pnl: list[float], asset: list[float], exposure: list[float],
+                        dates: list[str], level: float = 0.95, window: int = 250,
+                        keep_series: bool = False) -> dict | None:
+    """Grade every risk model on the same days: the days the strategy held
+    stock (a day in cash can't lose money, so counting it would flatter
+    every model). ``pnl[i]``, ``asset[i]`` are day i's returns of the account
+    and of the stock; ``exposure[i]`` is the share of the account at risk on
+    day i, known at the previous close; ``dates[i]`` is day i's date."""
+    n = len(pnl)
+    if n < window + 50 or len(asset) != n or len(exposure) != n:
+        return None
+    test = [i for i in range(window, n) if exposure[i] > 1e-9]
+    if len(test) < 50:
+        return None
+    sig_pnl, sig_asset = ewma_sigma(pnl), ewma_sigma(asset)
+    tdates = [dates[i] for i in test]
+    models, full = {}, {}
+    for key, (label, base, model) in RISK_MODELS.items():
+        if base == "pnl":
+            fc = var_forecasts(pnl, level, window, model, sig_pnl)
+        else:
+            av = var_forecasts(asset, level, window, model, sig_asset)
+            fc = [exposure[window + j] * av[j] for j in range(len(av))]
+        full[key] = fc
+        ft = [fc[i - window] for i in test]
+        hits = [-pnl[i] > f for i, f in zip(test, ft)]
+        models[key] = {"label": label, "base": base, "model": model, **grade_var(hits, level, ft, tdates)}
+    best = max(models, key=lambda k: (models[k]["passes"], models[k]["cc_p"]))
+    out = {"level": level, "window": window, "test_days": len(test), "total_days": n - window,
+           "models": models, "best": best}
+    if keep_series:
+        show = ["pnl_hist"] + ([best] if best != "pnl_hist" else [])
+        out["series"] = {"dates": dates[window:], "ret": [round(x, 6) for x in pnl[window:]],
+                         "invested": [exposure[i] > 1e-9 for i in range(window, n)],
+                         "var": {k: [round(v, 6) for v in full[k]] for k in show}}
     return out
 
 

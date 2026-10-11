@@ -39,6 +39,8 @@ mutate "gateway: kill switch ignored for buys"      gateway.py 's/            ad
 mutate "gateway: position limit not enforced"       gateway.py 's/            add("Position limit", new_val <= Q(str(lim.max_position_value)),/            add("Position limit", True,/'
 mutate "gateway: exposure checked before the fee"   gateway.py 's/            equity_after = self._equity(acct) - (notional - qty \* px) - fee/            equity_after = self._equity(acct)/'
 mutate "gateway: trades on a stale price"           gateway.py 's/        if age > q\["max_age"\]:/        if False:/'
+mutate "EWMA volatility peeks at today's return"   metrics.py 's/        out\[t\] = math.sqrt(var)/        out[t] = math.sqrt(lam * var + (1 - lam) * returns[t] * returns[t])/'
+mutate "risk models graded on days spent in cash"  metrics.py 's/    test = \[i for i in range(window, n) if exposure\[i\] > 1e-9\]/    test = list(range(window, n))/'
 mutate "run id ignores the dataset hash"            runner.py  's/"data": dataset_sha,/"data": "",/'
 
 echo "$caught/$total mutations caught"

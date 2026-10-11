@@ -15,10 +15,10 @@ import os
 import re
 import time
 
-from . import engine, metrics, strategies
+from . import analysis, engine, metrics, strategies
 from .data import load_csv, sha256_file, slice_dates
 
-_CORE = ["data.py", "engine.py", "metrics.py", "strategies.py", "runner.py"]
+_CORE = ["data.py", "engine.py", "metrics.py", "strategies.py", "runner.py", "analysis.py"]
 
 
 def engine_version() -> str:
@@ -137,9 +137,26 @@ def execute(cfg: dict, data_path: str, dataset_sha: str | None = None,
                      risk=engine.RiskConfig(**cfg["risk"]))
     t_sim = time.perf_counter() - t1
     summ = metrics.summary(res.equity, res.dates, res.position, res.trades, res.fees_paid)
-    rets = metrics.daily_returns(res.equity)
-    var_check = {"95": metrics.var_backtest(rets, res.dates[1:], 0.95, keep_series=True),
-                 "99": metrics.var_backtest(rets, res.dates[1:], 0.99)}
+    pnl = metrics.daily_returns(res.equity)
+    asset = [res.close[i + 1] / res.close[i] - 1 for i in range(len(res.close) - 1)]
+    # share of the account at risk on day i+1, known at day i's close: what we
+    # hold tonight, or what we will hold tomorrow if that is larger
+    exposure = [max(res.position[i] * res.close[i] / res.equity[i], res.target[i])
+                if res.equity[i] > 0 else 0.0 for i in range(len(res.equity) - 1)]
+    risk_models = {"95": metrics.compare_risk_models(pnl, asset, exposure, res.dates[1:], 0.95,
+                                                     keep_series=True),
+                   "99": metrics.compare_risk_models(pnl, asset, exposure, res.dates[1:], 0.99)}
+    t_deep = time.perf_counter()
+    has_rules = bool(cfg["risk"]["vol_target"] or cfg["risk"]["max_drawdown"]
+                     or cfg["risk"]["max_exposure"] < 1)
+    deep = {
+        "tails": analysis.tail_risk(asset, res.dates[1:]),
+        "attribution": analysis.rule_attribution(bars, cfg) if has_rules else None,
+        "robustness": analysis.robustness(bars, cfg, res),
+        "sources": analysis.return_sources(pnl, asset, exposure),
+        "regimes": analysis.regimes(pnl, asset, exposure),
+    }
+    t_deep = time.perf_counter() - t_deep
     luck = None
     t2 = time.perf_counter()
     if cfg["luck_test"]["trials"]:
@@ -154,13 +171,15 @@ def execute(cfg: dict, data_path: str, dataset_sha: str | None = None,
                      "bars": len(bars), "result_fingerprint": res.fingerprint()},
         "summary": summ,
         "luck_test": luck,
-        "var_check": var_check,
+        "risk_models": risk_models,
+        "deep": deep,
         "risk_events": res.risk_events,
         "trades": res.trades,
         "series": {"dates": res.dates, "equity": res.equity, "position": res.position,
                    "close": res.close, "target": res.target,
                    "drawdown": [round(x, 6) for x in metrics.drawdown_series(res.equity)]},
         "timing_ms": {"load": round(t_load * 1000, 2), "simulate": round(t_sim * 1000, 2),
+                      "deep_dive": round(t_deep * 1000, 2),
                       "luck_test": round((time.perf_counter() - t2) * 1000, 2),
                       "total": round((time.perf_counter() - t0) * 1000, 2)},
     }
