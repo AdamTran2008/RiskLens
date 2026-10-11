@@ -663,7 +663,7 @@ function showEnd(s){const b=s.base,m=s.managed;const el=$('l-end');el.classList.
  addAlert('ok','check','Replay finished',`Breaker fired ${L.trips} time${L.trips===1?'':'s'}`)}
 let raf=0;function schedule(){if(!raf)raf=requestAnimationFrame(()=>{raf=0;draw()})}
 function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
-function plot(cv,series,opts){const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=+cv.getAttribute('height');
+function plot(cv,series,opts){const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=+(cv.dataset.h||(cv.dataset.h=cv.getAttribute('height')));
  cv.width=w*dpr;cv.height=h*dpr;cv.style.height=h+'px';const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
  const n=L.days||1,pl=58,pr=8,pt=8,pb=22,pw=w-pl-pr,ph=h-pt-pb;
  let lo=opts.lo,hi=opts.hi;for(const s of series)for(const v of s){if(v<lo)lo=v;if(v>hi)hi=v}if(!isFinite(lo)||!isFinite(hi)){lo=0;hi=1}
@@ -753,7 +753,7 @@ let rafM=0;function schedM(){if(!rafM)rafM=requestAnimationFrame(()=>{rafM=0;mdr
 function niceRange(lo,hi,parts=4){if(!isFinite(lo)||!isFinite(hi)){lo=0;hi=1}if(hi===lo){const d=Math.abs(hi)*0.001||1;lo-=d;hi+=d}
  const raw=(hi-lo)/parts,mag=Math.pow(10,Math.floor(Math.log10(raw))),step=[1,2,2.5,5,10].map(m=>m*mag).find(x=>x>=raw);
  return{lo:Math.floor(lo/step)*step,hi:Math.ceil(hi/step)*step,step}}
-function mplot(cv,series,o){const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=+cv.getAttribute('height');if(!w)return;
+function mplot(cv,series,o){const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=+(cv.dataset.h||(cv.dataset.h=cv.getAttribute('height')));if(!w)return;
  cv.width=w*dpr;cv.height=h*dpr;cv.style.height=h+'px';const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
  g.font='12px "IBM Plex Sans",system-ui,sans-serif';g.fillStyle=css('--ink3');
  const n=M.bars.length;if(!n){g.textAlign='center';g.fillText(M.on?'Waiting for prices…':'Not connected',w/2,h/2);return}
