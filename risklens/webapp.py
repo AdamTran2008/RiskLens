@@ -1,10 +1,12 @@
 """The RiskLens web app, served by the run server at http://127.0.0.1:8765/
 
-One self-contained page (no build step, no external JS) with five screens:
+One self-contained page (no build step, no external JS) with six screens:
   Overview      risk snapshot of every downloaded dataset (watchlist cards)
   Live market   real prices as they happen (Coinbase real-time for crypto,
                 Yahoo delayed for stocks) with live risk feedback, alerts and
                 a measured latency breakdown (Server-Sent Events)
+  Risk gateway  pre-trade risk checks on a paper account: every order is approved
+                or rejected against live prices and limits; kill switch
   Analyze       controls for stock, strategy and risk rules; runs and shows the report
   Replay        replays history through the engine day by day, streaming risk
                 metrics and alerts like a risk desk monitor
@@ -32,6 +34,8 @@ def _icons_json() -> str:
         "radio": '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
         "timer": '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/>',
         "range": '<path d="M4 7h16M4 17h16M8 4v6M16 14v6"/>',
+        "gate": '<path d="M4 21V9l8-6 8 6v12"/><path d="M9 21v-7h6v7"/>',
+        "power": '<path d="M12 3v9"/><path d="M6.4 7.5a8 8 0 1 0 11.2 0"/>',
         "external": '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
     })
 
@@ -198,6 +202,45 @@ canvas{width:100%;display:block}
 .lat .tot{border-top:1px solid var(--rule);padding-top:8px;font-size:16px}
 .lat p{font-size:12px;color:var(--ink3);margin:10px 0 0;line-height:1.45}
 .kpi .v.sm{font-size:18px;padding:3px 0 2px}
+/* risk gateway */
+.gw-kill{display:none;align-items:center;gap:14px;padding:14px 18px;margin-bottom:16px;background:var(--badbg);border-color:var(--bad);color:var(--bad)}
+.gw-kill.on{display:flex}.gw-kill b{display:block;font-size:16px}.gw-kill span{color:var(--ink2)}
+.gw-kill .ic{width:28px;height:28px;flex:none}
+.btn.kill{background:var(--bad);border-color:var(--bad);color:#fff}.btn.kill:hover{filter:brightness(1.1);color:#fff}
+.gw{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}
+.gcard{padding:18px 20px;margin-bottom:16px}
+.gcard h4{margin:0 0 12px;font-size:15px;display:flex;align-items:center;gap:8px}
+.gcard h4 .ic{width:18px;height:18px;color:var(--ink3)}
+.gcard h4 .r{margin-left:auto;font-weight:400;font-size:13px;color:var(--ink3)}
+.ticket{display:grid;grid-template-columns:150px 1fr auto;gap:12px;align-items:end}
+.ticket .seg{grid-template-columns:1fr 1fr}
+.seg button.buy.on{background:var(--good)}.seg button.sell.on{background:var(--bad)}
+.ticket input{border:1px solid var(--rule);border-radius:8px;padding:7px 10px;background:var(--panel);width:100%}
+.ticket .est{font-size:13px;color:var(--ink3);margin-top:4px;min-height:18px}
+.quick{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.chk{list-style:none;margin:0;padding:0}
+.chk li{display:grid;grid-template-columns:26px 150px 1fr;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--grid);font-size:14px}
+.chk li .ic{width:20px;height:20px}.chk li.ok .ic{color:var(--good)}.chk li.no .ic{color:var(--bad)}
+.chk li.no{background:var(--badbg)}.chk b{font-weight:600}.chk span{color:var(--ink2)}
+.verd{display:inline-flex;align-items:center;gap:6px;font-weight:600;border-radius:999px;padding:3px 12px;font-size:13px}
+.verd.ok{background:var(--goodbg);color:var(--good)}.verd.no{background:var(--badbg);color:var(--bad)}
+.acct .big{font-size:28px;font-weight:600}.acct .pnl{font-size:14px;font-weight:600}
+.acct .pnl.pos{color:var(--good)}.acct .pnl.neg{color:var(--bad)}
+.acct dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:12px 0 0;font-size:14px}
+.acct dt{color:var(--ink2)}.acct dd{margin:0;font-weight:600;text-align:right}
+.meter{margin-top:14px}.meter .lab{display:flex;justify-content:space-between;font-size:13px;color:var(--ink2)}
+.meter .bar{position:relative;height:10px;background:var(--grid);border-radius:5px;margin-top:5px;overflow:visible}
+.meter .fillb{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--accent)}
+.meter .fillb.hot{background:var(--bad)}
+.meter .lim{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink)}
+.recon{margin-top:14px;font-size:13px;color:var(--good);display:flex;gap:6px;align-items:center}
+.recon .ic{width:16px;height:16px}.recon.bad{color:var(--bad)}
+.lims .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.lims .f input{border:1px solid var(--rule);border-radius:8px;padding:6px 8px;background:var(--panel);width:100%}
+.res{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px}
+.res.ok{background:var(--goodbg);color:var(--good)}.res.no{background:var(--badbg);color:var(--bad)}.res.fl{background:var(--warnbg);color:var(--warn)}
+#g-log td{font-size:13px}#g-log td.why{white-space:normal;color:var(--ink2);min-width:170px}
+@media (max-width:1100px){.gw{grid-template-columns:1fr}.ticket{grid-template-columns:1fr}}
 /* history */
 table{border-collapse:collapse;width:100%}
 th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--rule);font-size:14px;white-space:nowrap}
@@ -214,6 +257,7 @@ td.num,th.num{text-align:right}
   <div class="brand"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg><span>RiskLens</span></div>
   <a href="#/overview" data-p="overview"><i data-i="grid"></i><span>Overview</span></a>
   <a href="#/market" data-p="market"><i data-i="radio"></i><span>Live market</span></a>
+  <a href="#/gateway" data-p="gateway"><i data-i="gate"></i><span>Risk gateway</span></a>
   <a href="#/analyze" data-p="analyze"><i data-i="sliders"></i><span>Analyze</span></a>
   <a href="#/replay" data-p="replay"><i data-i="pulse"></i><span>Replay</span></a>
   <a href="#/history" data-p="history"><i data-i="clock"></i><span>History</span></a>
@@ -267,6 +311,57 @@ td.num,th.num{text-align:right}
           <p id="lt-note">Medians of recent updates.</p></div>
         <div class="card alerts"><h4><i data-i="bell"></i>Alerts<span class="count" id="m-count">0</span></h4>
           <ul class="feed" id="m-feed"><li class="info" data-idle><span class="ai"><i data-i="info"></i></span><div><b>Not connected</b><span>Pick a symbol and press Connect.</span></div></li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="p-gateway">
+    <div class="card lv-bar">
+      <span class="chip" id="g-feed">Not connected to a live price</span>
+      <button class="btn" id="g-connect" type="button"><i data-i="radio"></i>Connect BTC-USD</button>
+      <span class="grow"></span>
+      <span class="note" id="g-session"></span>
+      <button class="btn kill" id="g-kill" type="button"><i data-i="power"></i>Kill switch</button>
+    </div>
+    <div class="card gw-kill" id="g-killbox" role="alert"><i data-i="alert"></i><div><b id="g-killt">Kill switch engaged</b>
+      <span id="g-killd"></span></div><span class="grow" style="flex:1"></span><button class="btn" id="g-rearm" type="button">Re-arm</button></div>
+    <div class="gw">
+      <div>
+        <div class="card gcard"><h4><i data-i="sliders"></i>New order<span class="r">Paper account: simulated money, no real orders</span></h4>
+          <div class="ticket">
+            <div class="seg" id="g-side" role="group" aria-label="Side"><button type="button" class="buy on" data-v="buy">Buy</button><button type="button" class="sell" data-v="sell">Sell</button></div>
+            <div><label class="note" for="g-qty">Quantity of <b id="g-sym">BTC-USD</b></label><input id="g-qty" type="text" inputmode="decimal" value="0.1" autocomplete="off"><div class="est" id="g-est"></div></div>
+            <button class="btn primary" id="g-send" type="button"><i data-i="shield"></i>Check and send</button>
+          </div>
+          <div class="quick" id="g-quick"><span class="note">Size by share of equity:</span>
+            <button class="qchip" type="button" data-p="0.05">5%</button><button class="qchip" type="button" data-p="0.1">10%</button>
+            <button class="qchip" type="button" data-p="0.25">25%</button><button class="qchip" type="button" data-p="0.5">50%</button>
+            <button class="qchip" type="button" data-p="1">100%</button></div>
+        </div>
+        <div class="card gcard"><h4><i data-i="check"></i>Pre-trade checks<span class="r" id="g-vtime"></span></h4>
+          <div id="g-verdict" class="note">Send an order to see all eight checks run on it.</div>
+          <ul class="chk" id="g-checks"></ul></div>
+        <div class="card gcard"><h4><i data-i="clock"></i>Decision log<span class="r" id="g-stats"></span></h4>
+          <div class="scroll"><table><thead><tr><th>Time</th><th>Order</th><th class="num">Price</th><th class="num">Value</th><th>Result</th><th>Why</th><th class="num">Check</th></tr></thead>
+          <tbody id="g-log"><tr><td colspan="7" class="empty">No orders yet.</td></tr></tbody></table></div></div>
+      </div>
+      <div>
+        <div class="card gcard acct"><h4><i data-i="pie"></i>Account</h4>
+          <div class="big" id="g-eq">$100,000</div><div class="pnl" id="g-pnl"></div>
+          <dl><dt>Cash</dt><dd id="g-cash">–</dd><dt>Holdings</dt><dd id="g-hold">none</dd><dt>Fees paid</dt><dd id="g-fees">–</dd></dl>
+          <div class="meter"><div class="lab"><span>Exposure</span><span id="g-exl"></span></div><div class="bar"><i class="fillb" id="g-exb"></i><i class="lim" id="g-exm"></i></div></div>
+          <div class="meter"><div class="lab"><span>Below peak</span><span id="g-ddl"></span></div><div class="bar"><i class="fillb" id="g-ddb"></i><i class="lim" id="g-ddm"></i></div></div>
+          <div class="recon" id="g-recon"></div>
+        </div>
+        <div class="card gcard lims"><h4><i data-i="lock"></i>Limits</h4>
+          <div class="row3">
+            <div class="f"><label for="g-mo">Max order $</label><input id="g-mo" type="number" min="1" step="1000" value="25000"></div>
+            <div class="f"><label for="g-mp">Max holding $</label><input id="g-mp" type="number" min="1" step="1000" value="50000"></div>
+            <div class="f"><label for="g-rate">Orders / min</label><input id="g-rate" type="number" min="1" max="10000" value="30"></div>
+          </div>
+          <div class="note" id="g-rules"></div>
+          <div class="runbar"><button class="btn" id="g-reset" type="button"><i data-i="restart"></i>Reset account</button></div>
+        </div>
       </div>
     </div>
   </section>
@@ -379,6 +474,7 @@ const store={get(k,d){try{return JSON.parse(localStorage.getItem('rl.'+k))??d}ca
 /* ---------------- router ---------------- */
 const PAGES={overview:['Overview','Risk snapshot of every stock you have downloaded.'],
  market:['Live market','Real prices as they happen, with live risk feedback from your rules.'],
+ gateway:['Risk gateway','Every order is checked against live prices and your limits before it can trade.'],
  analyze:['Analyze','Test a strategy with and without risk rules.'],
  replay:['Replay','Replays history through the engine day by day, like a risk desk screen.'],
  history:['History','Every analysis saved on this server.']};
@@ -386,7 +482,7 @@ function route(){const p=(location.hash.match(/#\/(\w+)/)||[])[1]||'overview';co
  document.querySelectorAll('.page').forEach(e=>e.classList.toggle('on',e.id==='p-'+k));
  document.querySelectorAll('.nav a').forEach(a=>{const on=a.dataset.p===k;a.classList.toggle('on',on);on?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')});
  $('ptitle').textContent=PAGES[k][0];$('psub').textContent=PAGES[k][1];
- if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='overview')loadOverview();}
+ if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='gateway')gOpen(); if(k==='overview')loadOverview();}
 window.addEventListener('hashchange',route);
 
 /* ---------------- health ---------------- */
@@ -611,6 +707,81 @@ $('m-go').addEventListener('click',()=>{M.on?mStop():mConnect()});
 $('m-sym').addEventListener('keydown',e=>{if(e.key==='Enter')mConnect()});
 document.querySelectorAll('#m-quick button').forEach(b=>b.addEventListener('click',()=>{$('m-sym').value=b.dataset.s;mConnect()}));
 $('m-src').addEventListener('change',()=>{MS.src=$('m-src').value;store.set('market',MS);if(M.on)mConnect()});
+
+/* ---------------- risk gateway ---------------- */
+const SID=(()=>{let s=store.get('sid',null);if(!s||!/^[A-Za-z0-9_-]{8,64}$/.test(s)){const a=new Uint8Array(12);crypto.getRandomValues(a);
+ s='s'+[...a].map(x=>x.toString(16).padStart(2,'0')).join('');store.set('sid',s)}return s})();
+const G={side:'buy',st:null,lastId:0,kill:null,lim:store.get('glim',{mo:25000,mp:50000,rate:30})};
+async function gapi(path,body){const r=await fetch(path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-RiskLens-Session':SID},
+ body:body===undefined?undefined:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw new Error(j.error||r.statusText);return j}
+const gsym=()=>(M.on&&M.sym)?M.sym:(MS.sym||'BTC-USD');
+function gQuote(){const q=G.st&&G.st.quotes[gsym()];return q||null}
+function gLimitsBody(){return{max_order_value:G.lim.mo,max_position_value:G.lim.mp,max_orders_per_minute:G.lim.rate,
+ max_exposure:F.cap/100,vol_target:F.volOn?F.vol/100:null,kill_drawdown:F.ddOn?F.dd/100:null}}
+async function gOpen(){$('g-mo').value=G.lim.mo;$('g-mp').value=G.lim.mp;$('g-rate').value=G.lim.rate;
+ $('g-session').textContent='Paper account '+SID.slice(1,7);
+ try{gRender(await gapi('/api/gateway/limits',gLimitsBody()))}catch(e){$('g-verdict').textContent=e.message}}
+function gFeed(){const sym=gsym(),q=gQuote();$('g-sym').textContent=sym;
+ const f=$('g-feed');if(M.on&&M.risk){f.innerHTML=`<span class="dot"></span>Live: <b>${esc(sym)}</b> ${fmtPx(M.risk.price)}${M.sim?' (simulated)':''}`;$('g-connect').style.display='none'}
+ else{f.textContent=q&&q.fresh?`Last price ${esc(sym)} ${fmtPx(q.price)}`:'No live price: orders will be rejected (fail closed)';$('g-connect').style.display='';
+  $('g-connect').innerHTML=svg('radio')+'Connect '+esc(MS.sym||'BTC-USD')}
+ const px=M.on&&M.risk?M.risk.price:q?q.price:null,qty=parseFloat($('g-qty').value);
+ $('g-est').textContent=px&&qty>0?`≈ ${money(qty*px)} at ${fmtPx(px)}`:''}
+function gRender(s){G.st=s;
+ $('g-eq').textContent=money(s.equity);const p=$('g-pnl');p.className='pnl '+(s.pnl>0?'pos':s.pnl<0?'neg':'');
+ p.textContent=`${s.pnl>=0?'+':'−'}${money(Math.abs(s.pnl))} since start`;
+ $('g-cash').textContent=money(s.cash);$('g-fees').textContent='$'+s.fees.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+ $('g-hold').innerHTML=s.positions.length?s.positions.map(x=>`${esc(x.qty)} ${esc(x.symbol)} · ${money(x.value)}${x.stale?' <span class="muted">(stale)</span>':''}`).join('<br>'):'none';
+ const q=s.quotes[gsym()],allowed=q?q.allowed_exposure:s.limits.max_exposure;
+ $('g-exl').textContent=`${pct(s.exposure,0)} of equity · allowed ${pct(allowed,0)}`;
+ $('g-exb').style.width=Math.min(100,s.exposure*100)+'%';$('g-exb').classList.toggle('hot',s.exposure>allowed+1e-9);$('g-exm').style.left=Math.min(100,allowed*100)+'%';
+ const kd=s.limits.kill_drawdown,ddt=s.drawdown<0.0005?'0.0%':loss(s.drawdown);$('g-ddl').textContent=kd?`${ddt} · kill switch at ${pct(kd,0)}`:`${ddt} · auto kill off`;
+ const sc=kd?Math.max(kd*1.25,s.drawdown):Math.max(0.2,s.drawdown);
+ $('g-ddb').style.width=Math.min(100,s.drawdown/sc*100)+'%';$('g-ddb').classList.toggle('hot',kd&&s.drawdown>=0.7*kd);$('g-ddm').style.left=kd?(kd/sc*100)+'%':'-10px';
+ const r=$('g-recon');r.className='recon'+(s.reconciles?'':' bad');
+ r.innerHTML=svg(s.reconciles?'check':'alert')+(s.reconciles?'Books reconcile exactly: cash = start − bought + sold − fees':'Books do not reconcile!');
+ const L=s.limits;$('g-rules').innerHTML=`From your risk rules: exposure cap ${pct(L.max_exposure,0)}, vol target ${L.vol_target?pct(L.vol_target,0):'off'}, `+
+  `auto kill switch at ${L.kill_drawdown?pct(L.kill_drawdown,0)+' below peak':'off'} · <a href="#/analyze">change</a>`;
+ const st=s.stats;$('g-stats').textContent=st.checked?`${st.checked} checked · ${st.approved} approved · ${st.rejected} rejected · median check ${st.p50_us} µs`:'';
+ // kill switch
+ const k=s.kill;$('g-killbox').classList.toggle('on',!!k);
+ $('g-kill').innerHTML=svg('power')+(k?'Kill switch on':'Kill switch');$('g-kill').disabled=!!k;
+ if(k){$('g-killt').textContent=k.by==='auto'?'Kill switch tripped automatically':'Kill switch engaged';
+  $('g-killd').textContent=`${k.time} · ${k.reason}. Positions were closed and new buys are blocked until you re-arm.`}
+ if(k&&!G.kill)mAlert('crit','power',k.by==='auto'?'Kill switch tripped':'Kill switch engaged',`${k.reason}. Positions closed, buys blocked.`);
+ G.kill=k;
+ // log
+ $('g-log').innerHTML=s.log.length?s.log.map(d=>`<tr><td>${esc(d.time)}</td><td><b>${esc(d.side||'')}</b> ${esc(d.qty||'')} ${esc(d.symbol||'')}</td>`+
+  `<td class="num">${d.price!=null?fmtPx(d.price):'–'}</td><td class="num">${d.value!=null?money(d.value):'–'}</td>`+
+  `<td><span class="res ${d.flatten?'fl':d.approved?'ok':'no'}">${d.flatten?'Flattened':d.approved?'Approved':'Rejected'}</span></td>`+
+  `<td class="why">${esc(d.reason)}</td><td class="num">${d.check_us!=null?Math.round(d.check_us)+' µs':''}</td></tr>`).join('')
+  :'<tr><td colspan="7" class="empty">No orders yet.</td></tr>';
+ gFeed()}
+function gShow(d){const ok=d.approved;$('g-vtime').textContent=d.check_us!=null?`all checks in ${d.check_us} µs`:'';
+ $('g-verdict').innerHTML=`<span class="verd ${ok?'ok':'no'}">${svg(ok?'check':'alert')}${ok?'Approved and filled':'Rejected'}</span> `+
+  `<span class="note">${esc(d.side||'')} ${esc(d.qty||'')} ${esc(d.symbol||'')}${d.price?' at '+fmtPx(d.price):''}${ok?'':' · '+esc(d.reason)}</span>`;
+ const names=['Valid order','Live price','Kill switch','Order size','Order rate',d.side==='sell'?'No short selling':'Enough cash','Position limit','Exposure limit'];
+ const by={};for(const c of d.checks)by[c.name]=c;
+ $('g-checks').innerHTML=names.map(n=>{const c=by[n];if(!c)return`<li><span class="muted">–</span><b class="muted">${n}</b><span class="muted">not reached</span></li>`;
+  return`<li class="${c.ok?'ok':'no'}">${svg(c.ok?'check':'alert')}<b>${n}</b><span>${esc(c.detail)}</span></li>`}).join('');
+ if(!ok)mAlert('warn','shield','Order rejected by the gateway',`${d.side||''} ${d.qty||''} ${d.symbol||''}: ${d.reason}`)}
+async function gSend(){const b=$('g-send');b.disabled=true;
+ try{const r=await gapi('/api/gateway/order',{symbol:gsym(),side:G.side,qty:$('g-qty').value.trim()});gShow(r.decision);gRender(r.state)}
+ catch(e){$('g-verdict').textContent=e.message}finally{b.disabled=false}}
+document.querySelectorAll('#g-side button').forEach(b=>b.addEventListener('click',()=>{G.side=b.dataset.v;
+ document.querySelectorAll('#g-side button').forEach(x=>x.classList.toggle('on',x===b))}));
+$('g-send').addEventListener('click',gSend);
+$('g-qty').addEventListener('keydown',e=>{if(e.key==='Enter')gSend()});
+$('g-qty').addEventListener('input',gFeed);
+document.querySelectorAll('#g-quick button').forEach(b=>b.addEventListener('click',()=>{const px=M.on&&M.risk?M.risk.price:(gQuote()||{}).price;
+ if(!px||!G.st)return;const q=G.st.equity*(+b.dataset.p)/px;$('g-qty').value=(q>=1?q.toFixed(4):q.toPrecision(4)).replace(/\.?0+$/,'');gFeed()}));
+$('g-kill').addEventListener('click',async()=>{try{gRender(await gapi('/api/gateway/kill',{flatten:true}))}catch(e){$('g-verdict').textContent=e.message}});
+$('g-rearm').addEventListener('click',async()=>{try{gRender(await gapi('/api/gateway/rearm',{}));mAlert('ok','check','Kill switch re-armed','Buys allowed again; drawdown measured from here.')}catch(e){}});
+$('g-reset').addEventListener('click',async()=>{try{gRender(await gapi('/api/gateway/reset',{}));$('g-checks').innerHTML='';$('g-verdict').textContent='Account reset to $100,000.'}catch(e){}});
+for(const [id,k] of [['g-mo','mo'],['g-mp','mp'],['g-rate','rate']])$(id).addEventListener('change',async()=>{const v=+$(id).value;if(!(v>0))return;
+ G.lim[k]=k==='rate'?Math.round(v):v;store.set('glim',G.lim);try{gRender(await gapi('/api/gateway/limits',gLimitsBody()))}catch(e){$('g-verdict').textContent=e.message}});
+$('g-connect').addEventListener('click',()=>{if(!$('m-sym').value)$('m-sym').value=MS.sym||'BTC-USD';mConnect();setTimeout(gFeed,800)});
+setInterval(async()=>{if(!$('p-gateway').classList.contains('on')&&!M.on)return;try{gRender(await gapi('/api/gateway'))}catch(e){}},1000);
 
 /* ---------------- history ---------------- */
 async function loadHistory(){try{const rows=await api('/api/history');

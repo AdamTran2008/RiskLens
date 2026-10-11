@@ -35,6 +35,10 @@ mutate "VaR off by one"                             metrics.py 's/    var = -s\[
 mutate "luck test counts ties wrong"                metrics.py 's/        if s >= actual - 1e-12:/        if s > actual + 1e-12:/'
 mutate "VaR forecast peeks at the day it forecasts" metrics.py 's/        out.append(-win\[k - 1\])/        out.append(-sorted(returns[t - window + 1:t + 1])[k - 1])/'
 mutate "Kupiec p-value from the wrong distribution" metrics.py 's/    return math.erfc(math.sqrt(max(x, 0.0) \/ 2))/    return math.exp(-max(x, 0.0) \/ 2)/'
+mutate "gateway: kill switch ignored for buys"      gateway.py 's/            add("Kill switch", acct.kill is None,/            add("Kill switch", True,/'
+mutate "gateway: position limit not enforced"       gateway.py 's/            add("Position limit", new_val <= Q(str(lim.max_position_value)),/            add("Position limit", True,/'
+mutate "gateway: exposure checked before the fee"   gateway.py 's/            equity_after = self._equity(acct) - (notional - qty \* px) - fee/            equity_after = self._equity(acct)/'
+mutate "gateway: trades on a stale price"           gateway.py 's/        if age > q\["max_age"\]:/        if False:/'
 mutate "run id ignores the dataset hash"            runner.py  's/"data": dataset_sha,/"data": "",/'
 
 echo "$caught/$total mutations caught"

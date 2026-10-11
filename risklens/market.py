@@ -427,12 +427,16 @@ def _wire(bars):
 
 def stream(symbol, provider, emit, vol_target=0.15, dd_limit=0.15, poll_seconds=20.0,
            stale_after=300.0, sleep=time.sleep, clock=time.time, max_polls=None,
-           min_interval=0.1):
+           min_interval=0.016, on_quote=None):
     """Backfill the session, then follow the feed until emit raises ClientGone.
 
     Polling providers are re-read every ``poll_seconds``. Push providers
     (Coinbase) wake the loop the moment a trade arrives; bursts are batched
-    to at most one update per ``min_interval`` so the browser isn't flooded.
+    to at most one update per ``min_interval`` (16 ms, one 60 Hz screen
+    frame) so the browser isn't flooded.
+
+    ``on_quote(symbol, price, vol, max_age, source, simulated)`` is called on
+    every new price; the pre-trade risk gateway uses it as its price feed.
 
     Events: "snap" (full session + snapshot), "tick" (changed bars + snapshot
     + alerts + latency), "status" (feed state messages)."""
@@ -440,6 +444,11 @@ def stream(symbol, provider, emit, vol_target=0.15, dd_limit=0.15, poll_seconds=
     opener = getattr(provider, "open", None)
     latency = getattr(provider, "latency", lambda: {})
     notes = getattr(provider, "notes", lambda: [])
+    max_age = 15.0 if push else max(10.0, poll_seconds * 6)
+
+    def quote(snap):
+        if on_quote is not None:
+            on_quote(symbol, snap["price"], snap["vol"], max_age, provider.name, provider.simulated)
     try:
         bars = None
         while bars is None:
@@ -455,6 +464,7 @@ def stream(symbol, provider, emit, vol_target=0.15, dd_limit=0.15, poll_seconds=
         t0 = time.perf_counter()
         snap = snapshot(symbol, bars, vol_target, dd_limit)
         compute_ms = (time.perf_counter() - t0) * 1000
+        quote(snap)
         emit("snap", {"source": provider.name, "simulated": provider.simulated, "push": push,
                       "poll_seconds": poll_seconds, "bars": _wire(bars), "risk": snap,
                       "lat": latency() | {"compute_ms": compute_ms, "sent_ms": clock() * 1000}})
@@ -493,6 +503,7 @@ def stream(symbol, provider, emit, vol_target=0.15, dd_limit=0.15, poll_seconds=
             snap = snapshot(symbol, bars, vol_target, dd_limit)
             alerts = alerts_for(prev, snap)
             compute_ms = (time.perf_counter() - t0) * 1000
+            quote(snap)
             emit("tick", {"bars": _wire(changed), "risk": snap, "alerts": alerts,
                           "lat": latency() | {"compute_ms": compute_ms, "sent_ms": clock() * 1000}})
             if push and min_interval:

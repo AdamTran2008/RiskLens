@@ -32,7 +32,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import live, market, report, runner, webapp
+from . import gateway, live, market, report, runner, webapp
 from .data import load_csv, load_manifest, sha256_file
 
 MAX_BODY = 64 * 1024
@@ -64,6 +64,7 @@ class App:
         self._lock = threading.Lock()
         self._run_locks: dict[str, threading.Lock] = {}
         self.stats = {"runs_computed": 0, "cache_hits": 0}
+        self.gateway = gateway.Gateway()
 
     # ------------------------------------------------------------ store
     def _path(self, rid):
@@ -231,7 +232,8 @@ def make_handler(app: App, quiet: bool = True):
                 except (BrokenPipeError, ConnectionError, OSError):
                     raise market.ClientGone()
             try:
-                market.stream(sym, provider, emit, vol_target=vol, dd_limit=dd, poll_seconds=poll)
+                market.stream(sym, provider, emit, vol_target=vol, dd_limit=dd, poll_seconds=poll,
+                              on_quote=app.gateway.mark)
             except market.ClientGone:
                 pass
 
@@ -247,6 +249,11 @@ def make_handler(app: App, quiet: bool = True):
                 return self._send(200, app.history())
             if u.path == "/api/live":
                 return self._live(parse_qs(u.query))
+            if u.path == "/api/gateway":
+                try:
+                    return self._send(200, app.gateway.state(self._sid()))
+                except gateway.GatewayError as e:
+                    return self._err(400, str(e))
             if u.path == "/health":
                 return self._send(200, {"ok": True, "engine_version": app.version, **app.stats})
             if u.path == "/datasets":
@@ -264,19 +271,57 @@ def make_handler(app: App, quiet: bool = True):
                 return self._send(200, report.render(runs, embed=embed), "text/html")
             return self._err(404, "not found")
 
-        def do_POST(self):
-            if urlparse(self.path).path != "/runs":
-                return self._err(404, "not found")
+        def _body(self, allow_empty=False):
+            """Parsed JSON body, or None after sending an error response."""
             try:
                 n = int(self.headers.get("Content-Length", "0"))
             except ValueError:
-                return self._err(400, "bad Content-Length")
+                self._err(400, "bad Content-Length")
+                return None
+            if allow_empty and n == 0:
+                return {}
             if n <= 0 or n > MAX_BODY:
-                return self._err(413, f"body must be 1..{MAX_BODY} bytes")
+                self._err(413, f"body must be 1..{MAX_BODY} bytes")
+                return None
             try:
-                cfg = json.loads(self.rfile.read(n))
+                return json.loads(self.rfile.read(n))
             except (json.JSONDecodeError, UnicodeDecodeError):
-                return self._err(400, "body is not valid JSON")
+                self._err(400, "body is not valid JSON")
+                return None
+
+        def _sid(self):
+            return self.headers.get("X-RiskLens-Session") or "local-default"
+
+        def _gateway_post(self, path):
+            body = self._body(allow_empty=True)
+            if body is None:
+                return
+            gw, sid = app.gateway, self._sid()
+            try:
+                if path == "/api/gateway/order":
+                    d = gw.submit(sid, body)
+                    return self._send(200, {"decision": d, "state": gw.state(sid)})
+                if path == "/api/gateway/kill":
+                    return self._send(200, gw.kill(sid, flatten=body.get("flatten", True) is not False))
+                if path == "/api/gateway/rearm":
+                    return self._send(200, gw.rearm(sid))
+                if path == "/api/gateway/reset":
+                    return self._send(200, gw.reset(sid))
+                if path == "/api/gateway/limits":
+                    return self._send(200, gw.set_limits(sid, body))
+            except gateway.GatewayError as e:
+                return self._err(400, str(e))
+            return self._err(404, "not found")
+
+        def do_POST(self):
+            path = urlparse(self.path).path
+            if path.startswith("/api/gateway/"):
+                return self._gateway_post(path)
+            if path != "/runs":
+                return self._err(404, "not found")
+            cfg = self._body()
+            if cfg is None:
+                return
             try:
                 t0 = time.perf_counter()
                 result, cached = app.submit(cfg)
