@@ -174,9 +174,20 @@ def make_handler(app: App, quiet: bool = True):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second server bind the same port while
+    # the first keeps receiving requests. Refuse instead, so a stale server
+    # can never silently answer.
+    allow_reuse_address = os.name != "nt"
+
+
 def serve(host, port, data_dir, results_dir, quiet=True):
     app = App(data_dir, results_dir)
-    httpd = ThreadingHTTPServer((host, port), make_handler(app, quiet))
+    try:
+        httpd = _Server((host, port), make_handler(app, quiet))
+    except OSError as e:
+        raise SystemExit(f"cannot listen on {host}:{port} ({e}). Is another RiskLens "
+                         f"server already running? Stop it with Ctrl+C or use --port.")
     httpd.daemon_threads = True
     return app, httpd
 
