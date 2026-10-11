@@ -1,3 +1,4 @@
-# Runtime for the hosted web app. The engine itself is standard library only;
-# this one package adds the real-time Coinbase crypto feed.
-websocket-client>=1.6,<2
+# Everything the app needs at runtime. The engine itself is pure standard
+# library; these add the live crypto feed and "type any ticker" downloads.
+websocket-client>=1.6,<2      # Coinbase real-time WebSocket feed
+yfinance>=0.2.50              # daily stock history from Yahoo Finance (any ticker)

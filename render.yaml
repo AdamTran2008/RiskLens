@@ -10,3 +10,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
+      # Set to "1" to let visitors analyze any ticker (downloads daily prices
+      # from Yahoo Finance, rate-limited). Yahoo's data is meant for personal
+      # use and Yahoo sometimes blocks cloud servers, so it is off by default.
+      - key: RISKLENS_ALLOW_DOWNLOADS
+        value: "0"

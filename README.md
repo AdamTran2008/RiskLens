@@ -4,7 +4,7 @@
 crashes, checked against live prices, and proven correct by its own tests.**
 
 [![tests](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml)
-&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 143 tests ·
+&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 145 tests ·
 17/17 planted bugs caught
 
 **Live demo:** _add your hosted link here (see [Deploy](#deploy))_ ·
@@ -25,7 +25,7 @@ on historical data and on live prices:
 | **What do my rules say right now?** | **Live market** streams every trade from Coinbase's public WebSocket (Yahoo for stocks, delayed) and recomputes the allowed exposure, drawdown vs. the breaker, 60-minute volatility and 1-minute VaR on each update, with alerts and a measured latency breakdown. |
 | **Should this order be allowed?** | The **Risk gateway** runs every order through eight pre-trade checks (fresh price, kill switch, fat-finger size, order rate, cash, no shorting, position limit, exposure limit) on a paper account, with a **kill switch** that trips automatically on a drawdown and flattens the position. |
 | **What happened, day by day?** | **Replay** streams 10+ years through the engine like a risk desk screen, with alerts when the breaker fires. |
-| **What about another stock?** | **+ Add stock** downloads any Yahoo Finance ticker from inside the app (frozen and fingerprinted, no restart). A stock bar switches every page in one click, or with the ← → keys; saved results come back in milliseconds. Presets (No rules / Moderate / Conservative) and period chips (All / 10 / 5 / 3 years) re-run instantly. |
+| **What about any other stock?** | **Type any ticker** in the search box (AAPL, BRK-B, ^GSPC, 7203.T…). The first time, its daily history since 2005 is downloaded, frozen and fingerprinted, then analyzed, with no restart. After that a stock bar switches every page in one click, or with the ← → keys, and saved results come back in milliseconds. Presets (No rules / Moderate / Conservative) and period chips (All / 10 / 5 / 3 years) re-run instantly; an update button fetches the latest prices. |
 
 **Core claim: you can trust the numbers.** RiskLens
 
@@ -64,20 +64,21 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 143 tests, ~25 s
+python3 -m pytest -q         # 145 tests, ~25 s
 ./scripts/mutation_check.sh  # plants 17 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~90 s)
 python3 -m risklens.server   # then open http://127.0.0.1:8765/
 ```
 
-**Add stocks from the app:** `pip install yfinance` once, then press
-**+ Add stock** and type a ticker (AAPL, BRK-B, ^GSPC…). It is downloaded,
-frozen to `data/<TICKER>.csv`, fingerprinted in `data/manifest.json`, and
-ready at once. The command line does the same:
+**Analyze any stock:** `pip install -r requirements.txt` once (adds yfinance
+and websocket-client), start the server, and type a ticker in the search box
+(AAPL, BRK-B, ^GSPC, 7203.T…; press `/` to jump there). The first time, it is
+downloaded, frozen to `data/<TICKER>.csv`, fingerprinted in
+`data/manifest.json`, and analyzed at once. The command line does the same:
 
 ```bash
 pip install yfinance
-python3 scripts/fetch_data.py AAPL SPY --start 2010-01-01      # --end defaults to the latest day
+python3 scripts/fetch_data.py AAPL SPY --start 2005-01-01      # --end defaults to the latest day
 ./scripts/demo.sh AAPL
 ```
 The data is downloaded **once**, frozen to `data/AAPL.csv`, and its SHA-256 is
@@ -95,8 +96,13 @@ pip install websocket-client
 RiskLens runs as a public website with one command, `python -m risklens.server --public`:
 it listens on `$PORT`, and adds per-visitor rate limits, caps on live streams
 and luck-test size, a bounded result store, and one paper account per browser.
-Only the synthetic dataset ships in the repo, and Yahoo is disabled on the
-public server (crypto streams from Coinbase).
+Only the synthetic dataset ships in the repo. By default visitors can't
+download new stocks; to let them analyze any ticker, start with
+`--allow-downloads` (or set `RISKLENS_ALLOW_DOWNLOADS=1`, already listed in
+`render.yaml`): downloads are then limited to 5 a minute per visitor and 200
+stocks in total. Two honest caveats: Yahoo's data is meant for personal use,
+and Yahoo sometimes blocks requests from cloud servers, in which case the
+search box shows Yahoo's error. Live crypto always streams from Coinbase.
 
 * **Render (free):** push this repo to GitHub, then on render.com choose
   **New → Blueprint** and pick the repo. `render.yaml` does the rest.
@@ -214,7 +220,7 @@ exposure-limit boundary), and we strengthened it.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **143 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
+Results: **145 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
 `tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)

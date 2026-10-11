@@ -43,7 +43,8 @@ MARKET_SYM_RE = re.compile(r"[A-Z0-9.\-=^]{1,15}")
 
 # Public demo mode (--public): limits so one visitor can't hog a shared server
 PUBLIC = {"posts_per_minute": 60, "runs_per_minute": 20, "max_luck_trials": 1000,
-          "streams_total": 40, "streams_per_client": 4, "max_stored_results": 2000}
+          "streams_total": 40, "streams_per_client": 4, "max_stored_results": 2000,
+          "downloads_per_minute": 5, "max_datasets": 200}
 
 
 class RateLimiter:
@@ -92,8 +93,13 @@ class StreamSlots:
 
 
 class App:
-    def __init__(self, data_dir: str, results_dir: str, public: bool = False):
+    def __init__(self, data_dir: str, results_dir: str, public: bool = False,
+                 allow_downloads: bool = False):
         self.public = public
+        # Downloading new stocks (Yahoo Finance) is always on locally; on a
+        # public server only if its owner opts in with --allow-downloads.
+        self.downloads = (not public) or allow_downloads
+        self.download_limit = RateLimiter(PUBLIC["downloads_per_minute"])
         self.post_limit = RateLimiter(PUBLIC["posts_per_minute"])
         self.run_limit = RateLimiter(PUBLIC["runs_per_minute"])
         self.streams = StreamSlots(PUBLIC["streams_total"], PUBLIC["streams_per_client"])
@@ -208,15 +214,18 @@ class App:
     def add_dataset(self, body):
         """Download a stock's daily prices, freeze and register them, and make
         them available immediately (no restart). Local use only."""
-        if self.public:
-            raise PermissionError("Adding stocks is only available when you run RiskLens on your "
-                                  "own computer (Yahoo data can't be redistributed).")
+        if not self.downloads:
+            raise PermissionError("This public demo can't download new stocks. Run RiskLens on your "
+                                  "own computer to analyze any ticker.")
         if type(body) is not dict or set(body) - {"symbol", "start", "end"}:
             raise fetch.FetchError("send {\"symbol\": ..., \"start\": optional, \"end\": optional}")
         with self._data_lock:                      # one download at a time; manifest stays consistent
+            sym = fetch.check_symbol(body.get("symbol"))
+            if self.public and sym not in self.datasets and len(self.datasets) >= PUBLIC["max_datasets"]:
+                raise PermissionError(f"this demo already holds {PUBLIC['max_datasets']} stocks; "
+                                      f"pick one of them")
             e = fetch.add_dataset(self.data_dir, body.get("symbol"), body.get("start"),
                                   body.get("end"), fetcher=self.fetcher)
-            sym = fetch.check_symbol(body.get("symbol"))
             self.datasets[sym] = dict(e, path=os.path.join(self.data_dir, e["file"]))
         return {"symbol": sym, **e}
 
@@ -311,7 +320,7 @@ def make_handler(app: App, quiet: bool = True):
                 dd = float(q.get("dd", ["0.15"])[0])
                 if not (0.01 <= vol <= 2 and 0.005 <= dd <= 0.99):
                     raise ValueError("vol must be 0.01-2 and dd 0.005-0.99")
-                provider, poll = market.make_provider(source, sym, public=app.public)
+                provider, poll = market.make_provider(source, sym, public=not app.downloads)
             except ValueError as e:
                 return self._err(400, str(e))
             slot = self._stream_slot()
@@ -357,7 +366,7 @@ def make_handler(app: App, quiet: bool = True):
                     return self._err(400, str(e))
             if u.path == "/health":
                 return self._send(200, {"ok": True, "engine_version": app.version, "public": app.public,
-                                        **app.stats})
+                                        "downloads": app.downloads, **app.stats})
             if u.path == "/datasets":
                 return self._send(200, {s: {k: v for k, v in e.items() if k != "path"}
                                         for s, e in app.datasets.items()})
@@ -439,6 +448,8 @@ def make_handler(app: App, quiet: bool = True):
             if path.startswith("/api/gateway/"):
                 return self._gateway_post(path)
             if path == "/api/datasets":
+                if app.public and app.downloads and not app.download_limit.allow(self._client()):
+                    return self._err(429, "too many downloads this minute; wait a moment")
                 body = self._body()
                 if body is None:
                     return
@@ -482,8 +493,8 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = os.name != "nt"
 
 
-def serve(host, port, data_dir, results_dir, quiet=True, public=False):
-    app = App(data_dir, results_dir, public=public)
+def serve(host, port, data_dir, results_dir, quiet=True, public=False, allow_downloads=False):
+    app = App(data_dir, results_dir, public=public, allow_downloads=allow_downloads)
     try:
         httpd = _Server((host, port), make_handler(app, quiet))
     except OSError as e:
@@ -500,13 +511,17 @@ def main(argv=None):
                     help="default $PORT if set (hosting services), else 8765")
     ap.add_argument("--public", action="store_true",
                     help="public demo: listen on all interfaces, rate limits, capped streams and store")
+    ap.add_argument("--allow-downloads", action="store_true",
+                    default=os.environ.get("RISKLENS_ALLOW_DOWNLOADS", "").lower() in ("1", "true", "yes"),
+                    help="public demo: let visitors analyze any ticker (downloads from Yahoo Finance; "
+                         "rate-limited). Also set by RISKLENS_ALLOW_DOWNLOADS=1")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--results-dir", default="results")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args(argv)
     a.host = a.host or ("0.0.0.0" if a.public else "127.0.0.1")
     app, httpd = serve(a.host, a.port, a.data_dir, a.results_dir, quiet=not a.verbose,
-                       public=a.public)
+                       public=a.public, allow_downloads=a.allow_downloads)
     names = ", ".join(f"{s}({e['rows']})" for s, e in app.datasets.items()) or "none"
     print(f"RiskLens server on http://{a.host}:{a.port}  engine={app.version}  "
           f"datasets={names}", flush=True)

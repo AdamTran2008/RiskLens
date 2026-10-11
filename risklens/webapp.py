@@ -100,6 +100,7 @@ padding:8px 14px;cursor:pointer;font-weight:500;text-decoration:none;color:var(-
 .stats div{display:flex;justify-content:space-between;border-bottom:1px solid var(--grid);padding-bottom:4px}
 .stats span{color:var(--ink3)} .stats b{font-weight:600}
 .tk-a{display:flex;gap:8px;margin-top:2px}
+.tk-a .btn.up{flex:0 0 auto;padding:7px 10px}
 .tk-a .btn{flex:1;justify-content:center;padding:7px 10px;font-size:14px}
 .note{color:var(--ink2);font-size:14px}
 .empty{padding:28px;text-align:center;color:var(--ink2)}
@@ -203,8 +204,18 @@ canvas{width:100%;display:block}
 .lat p{font-size:12px;color:var(--ink3);margin:10px 0 0;line-height:1.45}
 .kpi .v.sm{font-size:18px;padding:3px 0 2px}
 /* stock bar: one-click switching between stocks */
-.symbar{display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 32px 0}
+.symbar{display:none;flex-direction:column;gap:10px;padding:12px 32px 0}
 .symbar.on{display:flex}
+.symtop{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.search{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;
+padding:4px 4px 4px 12px;flex:0 1 600px;min-width:0}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent2)}
+.search .ic{width:18px;height:18px;color:var(--ink3)}
+.search input{border:0;outline:0;background:transparent;flex:1;min-width:0;font-size:15px;font-weight:600;text-transform:uppercase;padding:6px 0}
+.search input::placeholder{text-transform:none;font-weight:400;color:var(--ink3)}
+.search select{border:0;background:var(--soft);border-radius:8px;padding:6px 8px;font-size:13px;color:var(--ink2)}
+.search .btn{padding:7px 16px}
+.symrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .symbar .lab{font-size:13px;color:var(--ink3);font-weight:600;margin-right:2px}
 .symchips{display:flex;gap:6px;flex-wrap:wrap}
 .symchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--rule);background:var(--panel);border-radius:999px;
@@ -214,13 +225,6 @@ padding:5px 13px;font-weight:600;font-size:14px;cursor:pointer;color:var(--ink)}
 .sd{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
 .sd.calm{background:var(--good)}.sd.elevated{background:var(--warn)}.sd.stressed,.sd.halted{background:var(--bad)}
 .symchip.on .sd{box-shadow:0 0 0 2px #fff}
-.addbtn{border-style:dashed;color:var(--accent);background:transparent}
-.addbtn[hidden]{display:none}
-.addform{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.addform[hidden]{display:none}
-.addform input,.addform select{border:1px solid var(--rule);border-radius:8px;padding:6px 10px;background:var(--panel)}
-.addform input{width:130px;text-transform:uppercase;font-weight:600}
-.addform .btn{padding:6px 12px}
 .symmsg{font-size:13px;color:var(--ink2)}.symmsg.err{color:var(--bad)}.symmsg.ok{color:var(--good)}
 .symhint{margin-left:auto;font-size:12px;color:var(--ink3)}
 .symhint kbd{font:inherit;border:1px solid var(--rule);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:var(--panel)}
@@ -293,19 +297,25 @@ td.num,th.num{text-align:right}
 </aside>
 <div class="main">
   <header class="top"><div><h1 id="ptitle">Overview</h1><p id="psub"></p></div></header>
-  <div class="symbar" id="symbar" aria-label="Stocks">
-    <span class="lab">Stocks</span>
-    <div class="symchips" id="symchips"></div>
-    <button class="qchip addbtn" id="sym-add" type="button">+ Add stock</button>
-    <form class="addform" id="addform" hidden onsubmit="return false">
-      <input id="add-sym" maxlength="15" placeholder="e.g. TSLA" aria-label="Ticker to add" autocomplete="off" spellcheck="false">
-      <select id="add-from" aria-label="History to download"><option value="2000-01-01">since 2000</option>
-        <option value="2010-01-01" selected>since 2010</option><option value="2015-01-01">since 2015</option><option value="2020-01-01">since 2020</option></select>
-      <button class="btn primary" id="add-go" type="submit">Download</button>
-      <button class="btn" id="add-cancel" type="button">Cancel</button>
-    </form>
-    <span class="symmsg" id="symmsg" role="status"></span>
-    <span class="symhint" id="symhint"><kbd>←</kbd> <kbd>→</kbd> switch stock</span>
+  <div class="symbar" id="symbar">
+    <div class="symtop">
+      <form class="search" id="symsearch" role="search" onsubmit="return false">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="add-sym" list="tickers" maxlength="15" placeholder="Analyze any stock: type a ticker, e.g. TSLA" aria-label="Ticker to analyze" autocomplete="off" spellcheck="false">
+        <select id="add-from" aria-label="How much history to download" title="How much history to download the first time">
+          <option value="2000-01-01">since 2000</option><option value="2005-01-01" selected>since 2005</option>
+          <option value="2010-01-01">since 2010</option><option value="2015-01-01">since 2015</option></select>
+        <button class="btn primary" id="add-go" type="submit">Analyze</button>
+      </form>
+      <span class="symmsg" id="symmsg" role="status"></span>
+    </div>
+    <datalist id="tickers"><option value="SPY">S&amp;P 500 fund</option><option value="QQQ">Nasdaq-100 fund</option><option value="AAPL">Apple</option>
+      <option value="MSFT">Microsoft</option><option value="NVDA">Nvidia</option><option value="AMZN">Amazon</option><option value="GOOGL">Alphabet</option>
+      <option value="META">Meta</option><option value="TSLA">Tesla</option><option value="BRK-B">Berkshire Hathaway</option><option value="JPM">JPMorgan Chase</option>
+      <option value="XOM">Exxon Mobil</option><option value="GLD">Gold fund</option><option value="TLT">Long-term Treasury fund</option>
+      <option value="^GSPC">S&amp;P 500 index</option><option value="^IXIC">Nasdaq index</option><option value="BTC-USD">Bitcoin</option></datalist>
+    <div class="symrow"><span class="lab">Your stocks</span><div class="symchips" id="symchips"></div>
+      <span class="symhint" id="symhint"><kbd>/</kbd> search · <kbd>←</kbd> <kbd>→</kbd> switch</span></div>
   </div>
 
   <section class="page" id="p-overview">
@@ -517,7 +527,7 @@ function pill(el,s){el.className='pill '+s;el.innerHTML=svg(STATUS[s][0])+STATUS
 const store={get(k,d){try{return JSON.parse(localStorage.getItem('rl.'+k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem('rl.'+k,JSON.stringify(v))}catch(e){}}};
 
 /* ---------------- router ---------------- */
-const PAGES={overview:['Overview','Risk snapshot of every stock you have downloaded. Click one to analyze it, or add more.'],
+const PAGES={overview:['Overview','Risk snapshot of every stock you have. Type any ticker above to analyze a new one.'],
  market:['Live market','Real prices as they happen, with live risk feedback from your rules.'],
  gateway:['Risk gateway','Every order is checked against live prices and your limits before it can trade.'],
  analyze:['Analyze','Test a strategy with and without risk rules.'],
@@ -546,7 +556,7 @@ function spark(v,status){if(!v.length)return'';const w=280,h=56,lo=Math.min(...v
  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`}
 async function loadOverview(){
  try{const cards=await api('/api/overview');
-  if(!cards.length){$('cards').innerHTML=`<div class="card empty">No stocks yet. Press <b>+ Add stock</b> above and type a ticker such as SPY.</div>`;return}
+  if(!cards.length){$('cards').innerHTML=`<div class="card empty">No stocks yet. Type a ticker such as <b>SPY</b> in the search box above.</div>`;return}
   for(const c of cards)STAT[c.symbol]=c.status;paintSymbar();
   $('cards').innerHTML=cards.map(c=>`<article class="card tk">
    <div class="tk-h"><div><div class="sym">${esc(c.symbol)}</div><div class="px">$${c.price.toFixed(2)} · ${esc(c.last)}</div></div>
@@ -556,7 +566,9 @@ async function loadOverview(){
    <div><span>1-year volatility</span><b>${pct(c.vol_1y)}</b></div><div><span>1-day VaR 95%</span><b>${loss(c.var_95,2)}</b></div>
    <div><span>Worst fall ever</span><b>${loss(c.max_drawdown)}</b></div><div><span>Since</span><b>${esc(c.first.slice(0,4))}</b></div></div>
    <div class="tk-a"><a class="btn" href="#/analyze" data-sym="${esc(c.symbol)}">${svg('sliders')}Analyze</a>
-   <a class="btn" href="#/replay" data-sym="${esc(c.symbol)}">${svg('pulse')}Replay</a></div></article>`).join('');
+   <a class="btn" href="#/replay" data-sym="${esc(c.symbol)}">${svg('pulse')}Replay</a>
+   ${DOWNLOADS&&/^Yahoo/.test(c.source)?`<button class="btn up" type="button" data-up="${esc(c.symbol)}" title="Download the latest prices for ${esc(c.symbol)}" aria-label="Update ${esc(c.symbol)}">${svg('restart')}</button>`:''}</div></article>`).join('');
+  $('cards').querySelectorAll('button[data-up]').forEach(b=>b.addEventListener('click',()=>updateStock(b.dataset.up,b)));
   $('cards').querySelectorAll('a[data-sym]').forEach(a=>a.addEventListener('click',()=>{setSym(a.dataset.sym)}));
  }catch(e){$('cards').innerHTML=`<div class="card empty">Could not load: ${esc(e.message)}</div>`}}
 
@@ -863,7 +875,7 @@ async function loadHistory(){try{const rows=await api('/api/history');
  catch(e){$('hist').innerHTML=`<tr><td colspan="9" class="empty">${esc(e.message)}</td></tr>`}}
 
 /* ---------------- stock bar ---------------- */
-const STAT={};let PUBLIC=false;
+const STAT={};let PUBLIC=false,DOWNLOADS=true;
 const curPage=()=>{const p=(location.hash.match(/#\/(\w+)/)||[])[1];return PAGES[p]?p:'overview'};
 function paintSymbar(){const syms=Object.keys(DATASETS),el=$('symchips');
  el.innerHTML=syms.length?syms.map(x=>`<button type="button" class="symchip${x===F.sym?' on':''}" data-s="${esc(x)}" title="${esc(DATASETS[x].start)} to ${esc(DATASETS[x].end)}, ${(+DATASETS[x].rows).toLocaleString()} days">`+
@@ -878,18 +890,27 @@ document.addEventListener('keydown',e=>{const pg=curPage();if(pg!=='analyze'&&pg
  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;const syms=Object.keys(DATASETS);if(syms.length<2)return;
  const i=syms.indexOf(F.sym);e.preventDefault();switchSym(syms[(i+(e.key==='ArrowRight'?1:-1)+syms.length)%syms.length])});
 function symMsg(t,cls=''){const m=$('symmsg');m.className='symmsg '+cls;m.textContent=t}
-function openAdd(){$('addform').hidden=false;$('sym-add').hidden=true;$('add-sym').focus();symMsg('')}
-function closeAdd(){$('addform').hidden=true;$('sym-add').hidden=PUBLIC}
-async function addStock(){const x=$('add-sym').value.trim().toUpperCase();if(!x){$('add-sym').focus();return}
- const b=$('add-go');b.disabled=true;symMsg(`Downloading ${x} from Yahoo Finance…`);
+/* Type any ticker: a stock you already have opens at once; a new one is
+   downloaded the first time (frozen and fingerprinted), then analyzed. */
+function goTo(x){setSym(x);const pg=curPage();if(pg==='analyze')runAnalysis();else if(pg==='replay')switchSym(x);else location.hash='#/analyze'}
+const dlHelp=m=>/yfinance/.test(m)?'Downloading needs one package. In your terminal run: pip install yfinance (then try again)':m;
+async function analyzeTicker(){const x=$('add-sym').value.trim().toUpperCase();if(!x){$('add-sym').focus();return}
+ if(DATASETS[x]){$('add-sym').value='';symMsg('');goTo(x);return}
+ if(!DOWNLOADS){symMsg('This public demo can’t download new stocks. Pick one below, or run RiskLens on your own computer to analyze any ticker.','err');return}
+ const b=$('add-go');b.disabled=true;symMsg(`Downloading ${x} price history (first time only, a few seconds)…`);
  try{const e=await api('/api/datasets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:x,start:$('add-from').value})});
-  await loadDatasets();$('add-sym').value='';closeAdd();
-  symMsg(`${e.symbol} added: ${(+e.rows).toLocaleString()} trading days, ${e.start} to ${e.end}`,'ok');setTimeout(()=>symMsg(''),8000);
-  setSym(e.symbol);if(curPage()==='overview')loadOverview();else switchSym(e.symbol)}
- catch(err){symMsg(/yfinance/.test(err.message)?'Downloading needs one package. In your terminal run: pip install yfinance (then try again)':err.message,'err')}
- finally{b.disabled=false}}
-$('sym-add').addEventListener('click',openAdd);$('add-cancel').addEventListener('click',()=>{closeAdd();symMsg('')});
-$('add-go').addEventListener('click',addStock);$('add-sym').addEventListener('keydown',e=>{if(e.key==='Escape'){closeAdd();symMsg('')}});
+  await loadDatasets();$('add-sym').value='';
+  symMsg(`${e.symbol}: ${(+e.rows).toLocaleString()} trading days, ${e.start} to ${e.end}`,'ok');setTimeout(()=>symMsg(''),9000);goTo(e.symbol);
+  if(curPage()!=='overview')loadOverview()}                 // refresh risk dots in the background
+ catch(err){symMsg(dlHelp(err.message),'err')}finally{b.disabled=false}}
+async function updateStock(x,btn){if(!DATASETS[x])return;btn&&(btn.disabled=true);symMsg(`Updating ${x} to the latest prices…`);
+ try{const e=await api('/api/datasets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:x,start:DATASETS[x].start})});
+  await loadDatasets();A.shown=null;symMsg(`${x} updated: prices through ${e.end}`,'ok');setTimeout(()=>symMsg(''),8000);if(curPage()==='overview')loadOverview()}
+ catch(err){symMsg(dlHelp(err.message),'err')}finally{btn&&(btn.disabled=false)}}
+$('add-go').addEventListener('click',analyzeTicker);
+$('add-sym').addEventListener('keydown',e=>{if(e.key==='Escape'){$('add-sym').value='';symMsg('');$('add-sym').blur()}});
+document.addEventListener('keydown',e=>{if(e.key!=='/'||e.target.closest('input,select,textarea,[contenteditable]'))return;
+ if(!$('symbar').classList.contains('on'))return;e.preventDefault();$('add-sym').focus()});
 async function loadDatasets(){try{DATASETS=await api('/datasets')}catch(e){DATASETS={}}
  const syms=Object.keys(DATASETS);const opts=syms.map(x=>`<option>${esc(x)}</option>`).join('');$('f-sym').innerHTML=opts;$('l-sym').innerHTML=opts;
  if(!F.sym||!syms.includes(F.sym))F.sym=syms.includes('SPY')?'SPY':syms[0]||null;
@@ -897,7 +918,8 @@ async function loadDatasets(){try{DATASETS=await api('/datasets')}catch(e){DATAS
 
 /* ---------------- boot ---------------- */
 (async()=>{await loadDatasets();if(F.sym)setSym(F.sym);fillForm();liveCfgChip();
- try{const h=await api('/health');PUBLIC=h.public;if(PUBLIC)$('sym-add').hidden=true}catch(e){}
+ try{const h=await api('/health');PUBLIC=h.public;DOWNLOADS=h.downloads!==false;
+  if(!DOWNLOADS)$('add-sym').placeholder='Find a stock on this demo, e.g. SYNTH'}catch(e){}
  health();route();draw();if(curPage()!=='overview')loadOverview()})();
 </script></body></html>"""
 

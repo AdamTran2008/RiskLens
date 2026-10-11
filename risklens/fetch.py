@@ -44,7 +44,10 @@ def check_date(d, name) -> str | None:
     return d
 
 
-def yahoo_daily(symbol: str, start: str = "2010-01-01", end: str | None = None) -> list[Bar]:
+DEFAULT_START = "2005-01-01"      # covers the 2008 crash, COVID and 2022 for stress tests
+
+
+def yahoo_daily(symbol: str, start: str = DEFAULT_START, end: str | None = None) -> list[Bar]:
     """Daily adjusted bars from Yahoo Finance, oldest first. ``end`` is
     inclusive; None means up to the latest available day."""
     try:
@@ -72,13 +75,13 @@ def yahoo_daily(symbol: str, start: str = "2010-01-01", end: str | None = None) 
     return bars
 
 
-def add_dataset(data_dir: str, symbol: str, start: str = "2010-01-01", end: str | None = None,
+def add_dataset(data_dir: str, symbol: str, start: str = DEFAULT_START, end: str | None = None,
                 fetcher=yahoo_daily) -> dict:
     """Download, freeze and register one dataset; returns its manifest entry.
     The CSV is written to a temporary file and moved into place, so a failed
     download never leaves a half-written dataset."""
     sym = check_symbol(symbol)
-    start = check_date(start, "start") or "2010-01-01"
+    start = check_date(start, "start") or DEFAULT_START
     end = check_date(end, "end")
     if end and end < start:
         raise FetchError("start is after end")

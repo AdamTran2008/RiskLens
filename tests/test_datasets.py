@@ -10,6 +10,7 @@ import pytest
 
 from risklens import fetch, runner
 from risklens.data import load_manifest, register, sha256_file, synthetic, write_csv
+from risklens import server as server_mod
 from risklens.server import App, serve
 
 
@@ -124,3 +125,36 @@ def test_symbol_rule_shared_by_runs_and_downloads(sym, ok):
     except fetch.FetchError:
         fetch_ok = False
     assert run_ok == fetch_ok == ok
+
+
+@pytest.fixture
+def pub_dl(tmp_path):
+    d = tmp_path / "data"
+    d.mkdir()
+    app, httpd = serve("127.0.0.1", 0, str(d), str(tmp_path / "res"), public=True, allow_downloads=True)
+    app.calls = []
+    app.fetcher = fake_fetcher(app.calls)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield app, f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def test_public_server_can_opt_in_with_limits(pub_dl, monkeypatch):
+    app, base = pub_dl
+    health = json.loads(urllib.request.urlopen(base + "/health").read())
+    assert health["public"] is True and health["downloads"] is True
+    assert post(base, "/api/datasets", {"symbol": "AAA"})["rows"] == 400
+    assert app.calls[0] == ("AAA", "2005-01-01", None)            # default history covers 2008
+    codes = [status(lambda s=s: post(base, "/api/datasets", {"symbol": s})) for s in ("BBB", "CCC", "DDD", "EEE", "FFF")]
+    assert codes == [200, 200, 200, 200, 429]                       # 5 downloads a minute per visitor
+    app.download_limit.per = 100
+    monkeypatch.setitem(server_mod.PUBLIC, "max_datasets", 5)
+    assert status(lambda: post(base, "/api/datasets", {"symbol": "GGG"})) == 403   # demo is full
+    assert status(lambda: post(base, "/api/datasets", {"symbol": "AAA"})) == 200   # updating is fine
+
+
+def test_local_health_reports_downloads(srv):
+    _, base, _ = srv
+    h = json.loads(urllib.request.urlopen(base + "/health").read())
+    assert h["public"] is False and h["downloads"] is True
