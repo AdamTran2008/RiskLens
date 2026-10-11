@@ -4,7 +4,7 @@
 crashes, checked against live prices, and proven correct by its own tests.**
 
 [![tests](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml)
-&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 125 tests ·
+&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 143 tests ·
 17/17 planted bugs caught
 
 **Live demo:** _add your hosted link here (see [Deploy](#deploy))_ ·
@@ -25,6 +25,7 @@ on historical data and on live prices:
 | **What do my rules say right now?** | **Live market** streams every trade from Coinbase's public WebSocket (Yahoo for stocks, delayed) and recomputes the allowed exposure, drawdown vs. the breaker, 60-minute volatility and 1-minute VaR on each update, with alerts and a measured latency breakdown. |
 | **Should this order be allowed?** | The **Risk gateway** runs every order through eight pre-trade checks (fresh price, kill switch, fat-finger size, order rate, cash, no shorting, position limit, exposure limit) on a paper account, with a **kill switch** that trips automatically on a drawdown and flattens the position. |
 | **What happened, day by day?** | **Replay** streams 10+ years through the engine like a risk desk screen, with alerts when the breaker fires. |
+| **What about another stock?** | **+ Add stock** downloads any Yahoo Finance ticker from inside the app (frozen and fingerprinted, no restart). A stock bar switches every page in one click, or with the ← → keys; saved results come back in milliseconds. Presets (No rules / Moderate / Conservative) and period chips (All / 10 / 5 / 3 years) re-run instantly. |
 
 **Core claim: you can trust the numbers.** RiskLens
 
@@ -63,27 +64,31 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 125 tests, ~25 s
+python3 -m pytest -q         # 143 tests, ~25 s
 ./scripts/mutation_check.sh  # plants 17 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~90 s)
 python3 -m risklens.server   # then open http://127.0.0.1:8765/
 ```
 
-**Live crypto prices** for the Live market screen (needs internet):
-```bash
-pip install websocket-client
-```
+**Add stocks from the app:** `pip install yfinance` once, then press
+**+ Add stock** and type a ticker (AAPL, BRK-B, ^GSPC…). It is downloaded,
+frozen to `data/<TICKER>.csv`, fingerprinted in `data/manifest.json`, and
+ready at once. The command line does the same:
 
-**Real market data** (recommended for the demo; needs internet once):
 ```bash
 pip install yfinance
-python3 scripts/fetch_data.py AAPL SPY --start 2010-01-01 --end 2024-12-31
+python3 scripts/fetch_data.py AAPL SPY --start 2010-01-01      # --end defaults to the latest day
 ./scripts/demo.sh AAPL
 ```
 The data is downloaded **once**, frozen to `data/AAPL.csv`, and its SHA-256 is
 recorded in `data/manifest.json`. Backtests always run from that frozen
 snapshot, never from a live API, so they are reproducible and work offline.
 The server refuses to start if a file no longer matches its recorded hash.
+
+**Live crypto prices** for the Live market screen (needs internet):
+```bash
+pip install websocket-client
+```
 
 ### Deploy
 
@@ -209,7 +214,7 @@ exposure-limit boundary), and we strengthened it.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **125 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
+Results: **143 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
 `tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)

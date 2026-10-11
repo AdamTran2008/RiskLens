@@ -46,6 +46,10 @@ controls it before orders go out, and can prove its own numbers.
   everything and blocks buys until a person re-arms it.
 * **Replay:** streams 10+ years through the engine day by day like a risk
   desk screen; plus **Overview** (risk light per stock) and **History**.
+* **Any stock, one click:** **+ Add stock** downloads a ticker from inside
+  the app (frozen and fingerprinted, no restart), and a stock bar switches
+  every page in one click or with the ← → keys. Saved results come back in
+  about 20 ms; presets and period chips re-run instantly.
 
 ## How we built it
 The engine, server and app are pure Python standard library. A run **server**
@@ -73,7 +77,7 @@ capped live streams, a bounded store, and one paper account per browser.
   sequences of orders, price moves, limit changes and kill switch presses,
   and checks every limit after every step.
 * **The live replay matches the backtest to the cent.**
-* **125 tests**, run on Python 3.11–3.13 in CI. A mutation script plants **17
+* **143 tests**, run on Python 3.11–3.13 in CI. A mutation script plants **17
   realistic bugs** (look-ahead, ignored kill switch, stale prices, wrong
   p-values…) and the tests catch **17/17**. The tests also caught real bugs
   during the hackathon: a floating-point off-by-one in VaR, and a crash when a

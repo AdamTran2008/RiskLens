@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
 
 from . import engine, metrics, strategies
@@ -53,6 +54,7 @@ def _keys(d, allowed, where):
 
 
 DATE_LEN = 10
+SYMBOL_RE = re.compile(r"[A-Z0-9.\-=^]{1,15}")       # e.g. AAPL, BRK-B, ^GSPC, EURUSD=X
 
 
 def normalize(cfg: dict) -> dict:
@@ -60,9 +62,8 @@ def normalize(cfg: dict) -> dict:
     _keys(cfg, {"symbol", "start", "end", "strategy", "risk", "costs",
                 "initial_cash", "luck_test"}, "config")
     sym = cfg.get("symbol")
-    if type(sym) is not str or not sym.isascii() or not sym.replace(".", "").isalnum() \
-            or not 1 <= len(sym) <= 12:
-        raise ConfigError("symbol must be 1-12 letters/digits")
+    if type(sym) is not str or not SYMBOL_RE.fullmatch(sym.upper()):
+        raise ConfigError("symbol must be 1-15 letters, digits or . - = ^")
     out = {"symbol": sym.upper()}
     for k in ("start", "end"):
         v = cfg.get(k)

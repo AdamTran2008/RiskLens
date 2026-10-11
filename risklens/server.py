@@ -34,7 +34,7 @@ from urllib.parse import parse_qs, urlparse
 
 from collections import defaultdict, deque
 
-from . import gateway, live, market, report, runner, webapp
+from . import fetch, gateway, live, market, report, runner, webapp
 from .data import load_csv, load_manifest, sha256_file
 
 MAX_BODY = 64 * 1024
@@ -120,6 +120,8 @@ class App:
         self._run_locks: dict[str, threading.Lock] = {}
         self.stats = {"runs_computed": 0, "cache_hits": 0}
         self.gateway = gateway.Gateway()
+        self.fetcher = fetch.yahoo_daily          # replaced in tests
+        self._data_lock = threading.Lock()
 
     # ------------------------------------------------------------ store
     def _path(self, rid):
@@ -201,6 +203,22 @@ class App:
                         "saved": time.strftime("%Y-%m-%d %H:%M", time.localtime(
                             os.path.getmtime(os.path.join(self.results_dir, f))))})
         return out
+
+    # ---------------------------------------------------------- datasets
+    def add_dataset(self, body):
+        """Download a stock's daily prices, freeze and register them, and make
+        them available immediately (no restart). Local use only."""
+        if self.public:
+            raise PermissionError("Adding stocks is only available when you run RiskLens on your "
+                                  "own computer (Yahoo data can't be redistributed).")
+        if type(body) is not dict or set(body) - {"symbol", "start", "end"}:
+            raise fetch.FetchError("send {\"symbol\": ..., \"start\": optional, \"end\": optional}")
+        with self._data_lock:                      # one download at a time; manifest stays consistent
+            e = fetch.add_dataset(self.data_dir, body.get("symbol"), body.get("start"),
+                                  body.get("end"), fetcher=self.fetcher)
+            sym = fetch.check_symbol(body.get("symbol"))
+            self.datasets[sym] = dict(e, path=os.path.join(self.data_dir, e["file"]))
+        return {"symbol": sym, **e}
 
     # -------------------------------------------------------------- run
     def submit(self, raw_cfg: dict):
@@ -420,6 +438,16 @@ def make_handler(app: App, quiet: bool = True):
                 return self._err(429, "too many requests; wait a minute")
             if path.startswith("/api/gateway/"):
                 return self._gateway_post(path)
+            if path == "/api/datasets":
+                body = self._body()
+                if body is None:
+                    return
+                try:
+                    return self._send(200, app.add_dataset(body))
+                except PermissionError as e:
+                    return self._err(403, str(e))
+                except (fetch.FetchError, ValueError) as e:
+                    return self._err(400, str(e))
             if path != "/runs":
                 return self._err(404, "not found")
             cfg = self._body()

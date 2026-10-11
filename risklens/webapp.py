@@ -112,7 +112,7 @@ padding:8px 14px;cursor:pointer;font-weight:500;text-decoration:none;color:var(-
 .f{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
 .f label{font-size:13px;color:var(--ink2)}
 .f select,.f input[type=number],.f input[type=date]{border:1px solid var(--rule);border-radius:8px;padding:7px 10px;background:var(--panel);width:100%}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
 .seg button{border:0;background:var(--panel);padding:8px 4px;cursor:pointer;font-size:13px;border-right:1px solid var(--rule)}
 .seg button:last-child{border-right:0}
@@ -202,6 +202,33 @@ canvas{width:100%;display:block}
 .lat .tot{border-top:1px solid var(--rule);padding-top:8px;font-size:16px}
 .lat p{font-size:12px;color:var(--ink3);margin:10px 0 0;line-height:1.45}
 .kpi .v.sm{font-size:18px;padding:3px 0 2px}
+/* stock bar: one-click switching between stocks */
+.symbar{display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 32px 0}
+.symbar.on{display:flex}
+.symbar .lab{font-size:13px;color:var(--ink3);font-weight:600;margin-right:2px}
+.symchips{display:flex;gap:6px;flex-wrap:wrap}
+.symchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--rule);background:var(--panel);border-radius:999px;
+padding:5px 13px;font-weight:600;font-size:14px;cursor:pointer;color:var(--ink)}
+.symchip:hover{border-color:var(--accent);color:var(--accent)}
+.symchip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.sd{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.sd.calm{background:var(--good)}.sd.elevated{background:var(--warn)}.sd.stressed,.sd.halted{background:var(--bad)}
+.symchip.on .sd{box-shadow:0 0 0 2px #fff}
+.addbtn{border-style:dashed;color:var(--accent);background:transparent}
+.addbtn[hidden]{display:none}
+.addform{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.addform[hidden]{display:none}
+.addform input,.addform select{border:1px solid var(--rule);border-radius:8px;padding:6px 10px;background:var(--panel)}
+.addform input{width:130px;text-transform:uppercase;font-weight:600}
+.addform .btn{padding:6px 12px}
+.symmsg{font-size:13px;color:var(--ink2)}.symmsg.err{color:var(--bad)}.symmsg.ok{color:var(--good)}
+.symhint{margin-left:auto;font-size:12px;color:var(--ink3)}
+.symhint kbd{font:inherit;border:1px solid var(--rule);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:var(--panel)}
+.result.busy iframe{opacity:.35;transition:opacity .2s}
+.periods{display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 4px}
+.qchip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.presets{margin-bottom:10px}
+@media (max-width:760px){.symbar{padding:10px 14px 0}.symhint{display:none}}
 /* risk gateway */
 .gw-kill{display:none;align-items:center;gap:14px;padding:14px 18px;margin-bottom:16px;background:var(--badbg);border-color:var(--bad);color:var(--bad)}
 .gw-kill.on{display:flex}.gw-kill b{display:block;font-size:16px}.gw-kill span{color:var(--ink2)}
@@ -266,6 +293,20 @@ td.num,th.num{text-align:right}
 </aside>
 <div class="main">
   <header class="top"><div><h1 id="ptitle">Overview</h1><p id="psub"></p></div></header>
+  <div class="symbar" id="symbar" aria-label="Stocks">
+    <span class="lab">Stocks</span>
+    <div class="symchips" id="symchips"></div>
+    <button class="qchip addbtn" id="sym-add" type="button">+ Add stock</button>
+    <form class="addform" id="addform" hidden onsubmit="return false">
+      <input id="add-sym" maxlength="15" placeholder="e.g. TSLA" aria-label="Ticker to add" autocomplete="off" spellcheck="false">
+      <select id="add-from" aria-label="History to download"><option value="2000-01-01">since 2000</option>
+        <option value="2010-01-01" selected>since 2010</option><option value="2015-01-01">since 2015</option><option value="2020-01-01">since 2020</option></select>
+      <button class="btn primary" id="add-go" type="submit">Download</button>
+      <button class="btn" id="add-cancel" type="button">Cancel</button>
+    </form>
+    <span class="symmsg" id="symmsg" role="status"></span>
+    <span class="symhint" id="symhint"><kbd>←</kbd> <kbd>→</kbd> switch stock</span>
+  </div>
 
   <section class="page" id="p-overview">
     <div class="cards" id="cards"><div class="card empty">Loading datasets…</div></div>
@@ -275,8 +316,7 @@ td.num,th.num{text-align:right}
     <div class="card lv-bar">
       <input class="symin" id="m-sym" type="search" list="m-list" maxlength="15" aria-label="Symbol" placeholder="BTC-USD" autocomplete="off" spellcheck="false">
       <datalist id="m-list"><option>BTC-USD</option><option>ETH-USD</option><option>SOL-USD</option><option>DOGE-USD</option><option>SPY</option><option>AAPL</option><option>QQQ</option></datalist>
-      <div class="qchips" id="m-quick"><button class="qchip" type="button" data-s="BTC-USD">BTC</button><button class="qchip" type="button" data-s="ETH-USD">ETH</button>
-        <button class="qchip" type="button" data-s="SOL-USD">SOL</button><button class="qchip" type="button" data-s="SPY">SPY</button><button class="qchip" type="button" data-s="AAPL">AAPL</button></div>
+      <div class="qchips" id="m-quick"></div>
       <select id="m-src" aria-label="Data source"><option value="auto">Auto source</option><option value="coinbase">Coinbase · real-time crypto</option>
         <option value="yahoo">Yahoo · stocks, delayed</option><option value="sim">Simulated · offline</option></select>
       <span class="chip" id="m-cfg"></span>
@@ -318,7 +358,7 @@ td.num,th.num{text-align:right}
   <section class="page" id="p-gateway">
     <div class="card lv-bar">
       <span class="chip" id="g-feed">Not connected to a live price</span>
-      <button class="btn" id="g-connect" type="button"><i data-i="radio"></i>Connect BTC-USD</button>
+      <div class="qchips" id="g-quick" aria-label="Switch live price"></div>
       <span class="grow"></span>
       <span class="note" id="g-session"></span>
       <button class="btn kill" id="g-kill" type="button"><i data-i="power"></i>Kill switch</button>
@@ -375,6 +415,9 @@ td.num,th.num{text-align:right}
           <div class="f"><label for="f-start">From</label><input type="date" id="f-start"></div>
           <div class="f"><label for="f-end">To</label><input type="date" id="f-end"></div>
         </div>
+        <div class="periods" id="f-period" role="group" aria-label="Period"><button type="button" class="qchip" data-y="0">All</button>
+          <button type="button" class="qchip" data-y="10">10 years</button><button type="button" class="qchip" data-y="5">5 years</button>
+          <button type="button" class="qchip" data-y="3">3 years</button></div>
         <h3>Strategy</h3>
         <div class="seg" id="f-strat" role="group" aria-label="Strategy">
           <button type="button" data-v="sma_cross">Trend</button>
@@ -387,6 +430,8 @@ td.num,th.num{text-align:right}
         </div>
         <div class="f" id="p-mom" style="margin-top:10px"><label for="f-look">Look-back (days)</label><input type="number" id="f-look" min="1" max="1000" value="126"></div>
         <h3>Risk rules</h3>
+        <div class="seg presets" id="f-preset" role="group" aria-label="Risk preset"><button type="button" data-p="off">No rules</button>
+          <button type="button" data-p="mod">Moderate</button><button type="button" data-p="con">Conservative</button></div>
         <div class="rule" id="r-vol"><div class="rule-h"><label class="sw"><input type="checkbox" id="f-vol-on" checked><span></span></label>
           <label for="f-vol">Volatility target</label><span class="val" id="v-vol"></span></div>
           <input type="range" id="f-vol" min="5" max="40" step="1" value="15" aria-label="Volatility target percent"></div>
@@ -472,7 +517,7 @@ function pill(el,s){el.className='pill '+s;el.innerHTML=svg(STATUS[s][0])+STATUS
 const store={get(k,d){try{return JSON.parse(localStorage.getItem('rl.'+k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem('rl.'+k,JSON.stringify(v))}catch(e){}}};
 
 /* ---------------- router ---------------- */
-const PAGES={overview:['Overview','Risk snapshot of every stock you have downloaded.'],
+const PAGES={overview:['Overview','Risk snapshot of every stock you have downloaded. Click one to analyze it, or add more.'],
  market:['Live market','Real prices as they happen, with live risk feedback from your rules.'],
  gateway:['Risk gateway','Every order is checked against live prices and your limits before it can trade.'],
  analyze:['Analyze','Test a strategy with and without risk rules.'],
@@ -482,6 +527,8 @@ function route(){const p=(location.hash.match(/#\/(\w+)/)||[])[1]||'overview';co
  document.querySelectorAll('.page').forEach(e=>e.classList.toggle('on',e.id==='p-'+k));
  document.querySelectorAll('.nav a').forEach(a=>{const on=a.dataset.p===k;a.classList.toggle('on',on);on?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')});
  $('ptitle').textContent=PAGES[k][0];$('psub').textContent=PAGES[k][1];if(route.last!==k){window.scrollTo(0,0);route.last=k}
+ $('symbar').classList.toggle('on',['overview','analyze','replay'].includes(k));$('symhint').style.display=k==='overview'?'none':'';
+ if(k==='analyze'&&F.sym&&A.shown!==F.sym)runAnalysis();
  if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='gateway')gOpen(); if(k==='overview')loadOverview();}
 window.addEventListener('hashchange',route);
 
@@ -499,7 +546,8 @@ function spark(v,status){if(!v.length)return'';const w=280,h=56,lo=Math.min(...v
  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`}
 async function loadOverview(){
  try{const cards=await api('/api/overview');
-  if(!cards.length){$('cards').innerHTML=`<div class="card empty">No data yet. In a terminal run <code>python scripts/fetch_data.py SPY AAPL</code>, then restart the server.</div>`;return}
+  if(!cards.length){$('cards').innerHTML=`<div class="card empty">No stocks yet. Press <b>+ Add stock</b> above and type a ticker such as SPY.</div>`;return}
+  for(const c of cards)STAT[c.symbol]=c.status;paintSymbar();
   $('cards').innerHTML=cards.map(c=>`<article class="card tk">
    <div class="tk-h"><div><div class="sym">${esc(c.symbol)}</div><div class="px">$${c.price.toFixed(2)} · ${esc(c.last)}</div></div>
    <span class="pill ${c.status}">${svg(STATUS[c.status][0])}${STATUS[c.status][1]}</span></div>
@@ -514,11 +562,18 @@ async function loadOverview(){
 
 /* ---------------- form ---------------- */
 const F=store.get('form',{sym:null,start:'',end:'',strat:'sma_cross',fast:50,slow:200,look:126,volOn:true,vol:15,ddOn:true,dd:15,cool:20,cap:100,fee:1,slip:2,luck:'1000'});
-function setSym(s){F.sym=s;$('f-sym').value=s;$('l-sym').value=s;store.set('form',F)}
+function setSym(s){F.sym=s;$('f-sym').value=s;$('l-sym').value=s;store.set('form',F);paintSymbar();paintPeriod()}
 function readForm(){Object.assign(F,{sym:$('f-sym').value,start:$('f-start').value,end:$('f-end').value,fast:+$('f-fast').value,slow:+$('f-slow').value,
  look:+$('f-look').value,volOn:$('f-vol-on').checked,vol:+$('f-vol').value,ddOn:$('f-dd-on').checked,dd:+$('f-dd').value,cool:+$('f-cool').value,
  cap:+$('f-cap').value,fee:+$('f-fee').value,slip:+$('f-slip').value,luck:$('f-luck').value});store.set('form',F);paintForm()}
+const PRESETS={off:{volOn:false,ddOn:false,cap:100},mod:{volOn:true,vol:20,ddOn:true,dd:20,cool:20,cap:100},
+ con:{volOn:true,vol:10,ddOn:true,dd:10,cool:30,cap:80}};
+function presetOf(){for(const [k,p] of Object.entries(PRESETS))if(Object.entries(p).every(([a,v])=>F[a]===v))return k;return null}
+function paintPeriod(){const d=DATASETS[F.sym];let y=-1;
+ if(!F.start&&!F.end)y=0;else if(d&&F.start&&!F.end)y=Math.round((Date.parse(d.end)-Date.parse(F.start))/3.15576e10);
+ document.querySelectorAll('#f-period button').forEach(b=>b.classList.toggle('on',+b.dataset.y===y))}
 function paintForm(){document.querySelectorAll('#f-strat button').forEach(b=>b.classList.toggle('on',b.dataset.v===F.strat));
+ const pr=presetOf();document.querySelectorAll('#f-preset button').forEach(b=>b.classList.toggle('on',b.dataset.p===pr));paintPeriod();
  $('p-sma').style.display=F.strat==='sma_cross'?'':'none';$('p-mom').style.display=F.strat==='momentum'?'':'none';
  $('v-vol').textContent=F.vol+'%';$('v-dd').textContent=F.dd+'%';$('v-cool').textContent=F.cool+' days';$('v-cap').textContent=F.cap+'%';
  $('r-vol').classList.toggle('off',!F.volOn);$('r-dd').classList.toggle('off',!F.ddOn);$('r-cool').classList.toggle('off',!F.ddOn)}
@@ -532,15 +587,25 @@ function cfg(withRules){const params=F.strat==='sma_cross'?{fast:F.fast,slow:F.s
  return c}
 const hasRules=()=>F.volOn||F.ddOn||F.cap<100;
 document.querySelectorAll('#form input,#form select').forEach(e=>e.addEventListener('input',readForm));
-document.querySelectorAll('#f-strat button').forEach(b=>b.addEventListener('click',()=>{F.strat=b.dataset.v;readForm()}));
-$('run').addEventListener('click',async()=>{readForm();const b=$('run');b.disabled=true;$('amsg').className='msg';
- $('amsg').textContent='Running…';const t0=performance.now();
+/* Discrete choices (stock, strategy, preset, period) re-run at once; sliders
+   and number boxes wait for the Run button. Saved results come back in ms. */
+document.querySelectorAll('#f-strat button').forEach(b=>b.addEventListener('click',()=>{F.strat=b.dataset.v;readForm();runAnalysis()}));
+document.querySelectorAll('#f-preset button').forEach(b=>b.addEventListener('click',()=>{Object.assign(F,PRESETS[b.dataset.p]);store.set('form',F);fillForm();runAnalysis()}));
+document.querySelectorAll('#f-period button').forEach(b=>b.addEventListener('click',()=>{const y=+b.dataset.y,d=DATASETS[F.sym];
+ if(!y||!d){F.start='';F.end=''}else{const e=new Date(d.end);e.setFullYear(e.getFullYear()-y);F.start=e.toISOString().slice(0,10);F.end=''}
+ store.set('form',F);fillForm();runAnalysis()}));
+$('f-sym').addEventListener('change',()=>switchSym($('f-sym').value));
+const A={token:0,shown:null};
+async function runAnalysis(){readForm();if(!F.sym)return;const my=++A.token,sym=F.sym;$('amsg').className='msg';
+ $('amsg').textContent=`Running ${sym}…`;$('result').classList.add('busy');const t0=performance.now();
  try{const ids=[];let cached=true;
   for(const c of hasRules()?[cfg(false),cfg(true)]:[cfg(false)]){const r=await api('/runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});ids.push(r.run_id);cached=cached&&r.cached}
-  $('result').innerHTML=`<iframe title="Risk report" src="/report?runs=${ids.join(',')}&embed=1"></iframe>`;
-  $('amsg').innerHTML=`${cached?'Loaded from saved results':'Computed'} in ${Math.round(performance.now()-t0)} ms. <a href="/report?runs=${ids.join(',')}" target="_blank" rel="noopener">Open full page</a>`;
+  if(my!==A.token)return;                    // a newer switch happened meanwhile
+  $('result').innerHTML=`<iframe title="Risk report for ${esc(sym)}" src="/report?runs=${ids.join(',')}&embed=1"></iframe>`;A.shown=sym;
+  $('amsg').innerHTML=`${esc(sym)}: ${cached?'loaded from saved results':'computed'} in ${Math.round(performance.now()-t0)} ms. <a href="/report?runs=${ids.join(',')}" target="_blank" rel="noopener">Open full page</a>`;
   health();
- }catch(e){$('amsg').className='msg err';$('amsg').textContent=e.message}finally{b.disabled=false}});
+ }catch(e){if(my===A.token){$('amsg').className='msg err';$('amsg').textContent=e.message}}finally{if(my===A.token)$('result').classList.remove('busy')}}
+$('run').addEventListener('click',runAnalysis);
 
 /* ---------------- replay ---------------- */
 const L={es:null,playing:false,t:0,days:0,data:[],trips:0,alerts:0,ended:false,flags:{}};
@@ -609,7 +674,7 @@ window.addEventListener('resize',schedule);
 $('l-play').addEventListener('click',()=>{if(L.playing){stop();setPlaying(false)}else{if(L.ended)reset();start(L.data.length?L.t+1:0)}});
 $('l-restart').addEventListener('click',()=>{reset();start(0)});
 $('l-speed').addEventListener('change',()=>{if(L.playing)start(L.t+1)});
-$('l-sym').addEventListener('change',()=>{setSym($('l-sym').value);reset();setPlaying(false);$('l-date').textContent='Ready'});
+$('l-sym').addEventListener('change',()=>switchSym($('l-sym').value));
 
 /* ---------------- live market ---------------- */
 const MS=store.get('market',{sym:'BTC-USD',src:'auto'});
@@ -627,13 +692,13 @@ function mAlert(level,icon,title,text){M.alerts++;$('m-count').textContent=M.ale
  li.innerHTML=`<span class="ai">${svg(icon)}</span><div><b>${esc(title)}</b><span>${esc(text)} · ${tm}</span></div>`;
  const feed=$('m-feed');if(feed.firstElementChild&&feed.firstElementChild.dataset.idle!==undefined)feed.innerHTML='';feed.prepend(li);while(feed.children.length>100)feed.lastChild.remove()}
 function mLive(state,label){const el=$('m-live');el.className='live'+(state?' '+state:'');el.querySelector('span').textContent=label}
-function mStop(){if(M.es){M.es.close();M.es=null}M.on=false;$('m-go').innerHTML=svg('play')+'Connect';mLive('','Offline')}
+function mStop(){if(M.es){M.es.close();M.es=null}M.on=false;$('m-go').innerHTML=svg('play')+'Connect';mLive('','Offline');paintLiveChips()}
 function mConnect(){mStop();const sym=($('m-sym').value.trim()||'BTC-USD').toUpperCase();$('m-sym').value=sym;
  MS.sym=sym;MS.src=$('m-src').value;store.set('market',MS);mCfgChip();
  Object.assign(M,{bars:[],risk:null,lost:false,lastPx:null,trades:0,feed:null,lat:{calc:[],push:[],e2e:[]},ticks:[]});
  $('m-symbig').textContent=sym;$('m-px').textContent='–';$('m-chg').textContent='';$('m-brk').style.display='none';schedM();
  const es=new EventSource(`/api/market?symbol=${encodeURIComponent(sym)}&source=${MS.src}&vol=${F.vol/100}&dd=${F.dd/100}`);
- M.es=es;M.on=true;$('m-go').innerHTML=svg('pause')+'Disconnect';mLive('wait','Connecting…');
+ M.es=es;M.on=true;M.sym=sym;$('m-go').innerHTML=svg('pause')+'Disconnect';mLive('wait','Connecting…');paintLiveChips();
  es.addEventListener('snap',e=>{const m=JSON.parse(e.data);Object.assign(M,{bars:m.bars,push:m.push,sim:m.simulated,src:m.source,poll:m.poll_seconds,lost:false});
   mLive('on','LIVE');
   $('m-srcline').innerHTML=`<span class="tag${m.simulated?' sim':m.push?'':' delay'}">${m.simulated?'SIMULATED':m.push?'REAL-TIME':'DELAYED'}</span> ${esc(m.source)} · `+
@@ -706,7 +771,12 @@ window.addEventListener('resize',schedM);
 $('m-sym').value=MS.sym;$('m-src').value=MS.src;$('m-symbig').textContent=MS.sym;
 $('m-go').addEventListener('click',()=>{M.on?mStop():mConnect()});
 $('m-sym').addEventListener('keydown',e=>{if(e.key==='Enter')mConnect()});
-document.querySelectorAll('#m-quick button').forEach(b=>b.addEventListener('click',()=>{$('m-sym').value=b.dataset.s;mConnect()}));
+function liveSyms(){const st=Object.keys(DATASETS).filter(x=>x!=='SYNTH');
+ return['BTC-USD','ETH-USD','SOL-USD',...(st.length?st:['SPY','AAPL'])].filter((x,i,a)=>a.indexOf(x)===i).slice(0,12)}
+function paintLiveChips(){const cur=M.on?M.sym:'';const chip=x=>`<button class="qchip${x===cur?' on':''}" type="button" data-s="${esc(x)}">${esc(x.endsWith('-USD')?x.slice(0,-4):x)}</button>`;
+ const html=liveSyms().map(chip).join('');$('m-quick').innerHTML=html;$('g-quick').innerHTML=html;
+ for(const id of ['m-quick','g-quick'])$(id).querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{$('m-sym').value=b.dataset.s;mConnect();
+  paintLiveChips();if(id==='g-quick')setTimeout(gFeed,600)}))}
 $('m-src').addEventListener('change',()=>{MS.src=$('m-src').value;store.set('market',MS);if(M.on)mConnect()});
 
 /* ---------------- risk gateway ---------------- */
@@ -723,9 +793,8 @@ async function gOpen(){$('g-mo').value=G.lim.mo;$('g-mp').value=G.lim.mp;$('g-ra
  $('g-session').textContent='Paper account '+SID.slice(1,7);
  try{gRender(await gapi('/api/gateway/limits',gLimitsBody()))}catch(e){$('g-verdict').textContent=e.message}}
 function gFeed(){const sym=gsym(),q=gQuote();$('g-sym').textContent=sym;
- const f=$('g-feed');if(M.on&&M.risk){f.innerHTML=`<span class="dot"></span>Live: <b>${esc(sym)}</b> ${fmtPx(M.risk.price)}${M.sim?' (simulated)':''}`;$('g-connect').style.display='none'}
- else{f.textContent=q&&q.fresh?`Last price ${esc(sym)} ${fmtPx(q.price)}`:'No live price: orders will be rejected (fail closed)';$('g-connect').style.display='';
-  $('g-connect').innerHTML=svg('radio')+'Connect '+esc(MS.sym||'BTC-USD')}
+ const f=$('g-feed');if(M.on&&M.risk){f.innerHTML=`<span class="dot"></span>Live: <b>${esc(sym)}</b> ${fmtPx(M.risk.price)}${M.sim?' (simulated)':''}`;}
+ else{f.textContent=q&&q.fresh?`Last price ${esc(sym)} ${fmtPx(q.price)}`:'No live price yet: pick a symbol (orders without one are rejected)'}
  const px=M.on&&M.risk?M.risk.price:q?q.price:null,qty=parseFloat($('g-qty').value);
  $('g-est').textContent=px&&qty>0?`≈ ${money(qty*px)} at ${fmtPx(px)}`:''}
 function gRender(s){G.st=s;
@@ -781,7 +850,6 @@ $('g-rearm').addEventListener('click',async()=>{try{gRender(await gapi('/api/gat
 $('g-reset').addEventListener('click',async()=>{try{gRender(await gapi('/api/gateway/reset',{}));$('g-checks').innerHTML='';$('g-verdict').textContent='Account reset to $100,000.'}catch(e){}});
 for(const [id,k] of [['g-mo','mo'],['g-mp','mp'],['g-rate','rate']])$(id).addEventListener('change',async()=>{const v=+$(id).value;if(!(v>0))return;
  G.lim[k]=k==='rate'?Math.round(v):v;store.set('glim',G.lim);try{gRender(await gapi('/api/gateway/limits',gLimitsBody()))}catch(e){$('g-verdict').textContent=e.message}});
-$('g-connect').addEventListener('click',()=>{if(!$('m-sym').value)$('m-sym').value=MS.sym||'BTC-USD';mConnect();setTimeout(gFeed,800)});
 setInterval(async()=>{if(!$('p-gateway').classList.contains('on')&&!M.on)return;try{gRender(await gapi('/api/gateway'))}catch(e){}},1000);
 
 /* ---------------- history ---------------- */
@@ -794,11 +862,43 @@ async function loadHistory(){try{const rows=await api('/api/history');
   :'<tr><td colspan="9" class="empty">No analyses yet. Run one from Analyze.</td></tr>'}
  catch(e){$('hist').innerHTML=`<tr><td colspan="9" class="empty">${esc(e.message)}</td></tr>`}}
 
-/* ---------------- boot ---------------- */
-(async()=>{try{DATASETS=await api('/datasets')}catch(e){DATASETS={}}
- const syms=Object.keys(DATASETS);const opts=syms.map(s=>`<option>${esc(s)}</option>`).join('');$('f-sym').innerHTML=opts;$('l-sym').innerHTML=opts;
+/* ---------------- stock bar ---------------- */
+const STAT={};let PUBLIC=false;
+const curPage=()=>{const p=(location.hash.match(/#\/(\w+)/)||[])[1];return PAGES[p]?p:'overview'};
+function paintSymbar(){const syms=Object.keys(DATASETS),el=$('symchips');
+ el.innerHTML=syms.length?syms.map(x=>`<button type="button" class="symchip${x===F.sym?' on':''}" data-s="${esc(x)}" title="${esc(DATASETS[x].start)} to ${esc(DATASETS[x].end)}, ${(+DATASETS[x].rows).toLocaleString()} days">`+
+  `${STAT[x]?`<i class="sd ${STAT[x]}"></i>`:''}${esc(x)}</button>`).join(''):'<span class="symmsg">No stocks yet</span>';
+ el.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>switchSym(b.dataset.s)))}
+function switchSym(x){if(!x||!DATASETS[x])return;const pg=curPage();setSym(x);
+ if(pg==='overview'){location.hash='#/analyze';return}       // route() runs the analysis
+ if(pg==='analyze')runAnalysis();
+ if(pg==='replay'){const was=L.playing;reset();setPlaying(false);$('l-date').textContent='Ready';if(was)start(0)}}
+document.addEventListener('keydown',e=>{const pg=curPage();if(pg!=='analyze'&&pg!=='replay')return;
+ if(e.target.closest('input,select,textarea,[contenteditable]')||e.altKey||e.ctrlKey||e.metaKey)return;
+ if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;const syms=Object.keys(DATASETS);if(syms.length<2)return;
+ const i=syms.indexOf(F.sym);e.preventDefault();switchSym(syms[(i+(e.key==='ArrowRight'?1:-1)+syms.length)%syms.length])});
+function symMsg(t,cls=''){const m=$('symmsg');m.className='symmsg '+cls;m.textContent=t}
+function openAdd(){$('addform').hidden=false;$('sym-add').hidden=true;$('add-sym').focus();symMsg('')}
+function closeAdd(){$('addform').hidden=true;$('sym-add').hidden=PUBLIC}
+async function addStock(){const x=$('add-sym').value.trim().toUpperCase();if(!x){$('add-sym').focus();return}
+ const b=$('add-go');b.disabled=true;symMsg(`Downloading ${x} from Yahoo Finance…`);
+ try{const e=await api('/api/datasets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:x,start:$('add-from').value})});
+  await loadDatasets();$('add-sym').value='';closeAdd();
+  symMsg(`${e.symbol} added: ${(+e.rows).toLocaleString()} trading days, ${e.start} to ${e.end}`,'ok');setTimeout(()=>symMsg(''),8000);
+  setSym(e.symbol);if(curPage()==='overview')loadOverview();else switchSym(e.symbol)}
+ catch(err){symMsg(/yfinance/.test(err.message)?'Downloading needs one package. In your terminal run: pip install yfinance (then try again)':err.message,'err')}
+ finally{b.disabled=false}}
+$('sym-add').addEventListener('click',openAdd);$('add-cancel').addEventListener('click',()=>{closeAdd();symMsg('')});
+$('add-go').addEventListener('click',addStock);$('add-sym').addEventListener('keydown',e=>{if(e.key==='Escape'){closeAdd();symMsg('')}});
+async function loadDatasets(){try{DATASETS=await api('/datasets')}catch(e){DATASETS={}}
+ const syms=Object.keys(DATASETS);const opts=syms.map(x=>`<option>${esc(x)}</option>`).join('');$('f-sym').innerHTML=opts;$('l-sym').innerHTML=opts;
  if(!F.sym||!syms.includes(F.sym))F.sym=syms.includes('SPY')?'SPY':syms[0]||null;
- if(F.sym)setSym(F.sym);fillForm();liveCfgChip();health();route();draw()})();
+ if(F.sym){$('f-sym').value=F.sym;$('l-sym').value=F.sym}paintSymbar();paintLiveChips();return syms}
+
+/* ---------------- boot ---------------- */
+(async()=>{await loadDatasets();if(F.sym)setSym(F.sym);fillForm();liveCfgChip();
+ try{const h=await api('/health');PUBLIC=h.public;if(PUBLIC)$('sym-add').hidden=true}catch(e){}
+ health();route();draw();if(curPage()!=='overview')loadOverview()})();
 </script></body></html>"""
 
 

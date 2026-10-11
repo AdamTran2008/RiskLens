@@ -9,7 +9,7 @@ physically can't see the future, the money balances to the cent every day,
 and every result is reproducible from a hash. It even checks whether its
 own risk estimate was right, the way banks must. And it runs live: every order
 goes through eight pre-trade risk checks against real prices, with a kill
-switch. We proved it with 125 tests, and when we planted 17 bugs, the tests
+switch. We proved it with 143 tests, and when we planted 17 bugs, the tests
 caught all 17."
 
 ## Demo (3 minutes)
@@ -32,7 +32,9 @@ caught all 17."
    the account falls 15% from its peak."
 4. **Overview:** "Every stock we downloaded, with its current risk status."
 5. **Analyze:** pick SPY, Trend 50/200, 15% volatility target and 15% breaker,
-   then Run. Walk through Summary → Drawdowns → Stress tests (COVID crash) →
+   then Run. Press **→** to flip to the next stock and **←** to come back:
+   "Saved results come back in about 20 milliseconds, because every run is
+   stored under its fingerprint." Walk through Summary → Drawdowns → Stress tests (COVID crash) →
    **VaR check**: "Was our risk number right? We forecast VaR each day using
    only the past, then count the breaches: Kupiec says the count is right,
    Christoffersen says they cluster in crashes, which is why we need the
@@ -42,7 +44,7 @@ caught all 17."
    shallower in the drawdown chart. When the breaker fires, it shows up here
    in the alert feed." Pause during the COVID crash (early 2020) to show it.
 7. **History:** "Every run is saved and reproducible from its ID."
-8. If asked about correctness: `python -m pytest -q` (125 passed) and
+8. If asked about correctness: `python -m pytest -q` (143 passed) and
    `./scripts/mutation_check.sh` (17/17).
 
 ## Likely questions
@@ -136,5 +138,5 @@ of the 2nd. That's exactly the kind of silent error that makes backtests lie."
 
 ## Numbers to know
 ~180,000 bars/s · 10-year run simulates in 12 ms · luck test 97% of time ·
-cached result 2 ms · live pipeline 0.88 ms p50 · pre-trade checks 72 µs p50 · 125 tests ·
+cached result 2 ms · live pipeline 0.88 ms p50 · pre-trade checks 72 µs p50 · 143 tests ·
 17/17 mutations caught · money in integer cents (backtest) and exact fractions (gateway).
