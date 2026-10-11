@@ -525,12 +525,15 @@ def render(runs: list[dict]) -> str:
                 f"return also improved by {dr:.1f} points. Risk control does not always cost "
                 f"return, but expect it to in strong, steady bull markets.")
 
-    nav_items = [("summary", "Summary"), ("drawdowns", "Drawdowns"), ("stress", "Stress tests"),
-                 ("growth", "Growth"), ("invested", "Invested"), ("metrics", "All metrics"),
-                 ("luck", "Luck test"), ("log", "Rule log"), ("method", "Method")]
-    nav = "".join(f'<a href="#{i}">{t}</a>' for i, t in nav_items)
+    nav_items = [("summary", "summary", "Summary"), ("drawdowns", "down", "Drawdowns"),
+                 ("stress", "bolt", "Stress tests"), ("growth", "up", "Growth"),
+                 ("invested", "pie", "Invested"), ("metrics", "table", "All metrics"),
+                 ("luck", "dice", "Luck test"), ("log", "bell", "Risk-rule log"),
+                 ("method", "lock", "Method")]
+    nav = "".join(f'<a href="#{i}" data-view="{i}">{icon(ic, "nic")}<span>{t}</span></a>'
+                  for i, ic, t in nav_items)
 
-    body = "".join([
+    secs = [
         section("summary", "summary", "Summary",
                 f"{esc(strategy_name(runs[0]))} strategy on {sym}, {period}, starting with "
                 f"${c0['initial_cash']:,.0f}.",
@@ -582,7 +585,20 @@ def render(runs: list[dict]) -> str:
                     f'<td><code>{r["manifest"]["dataset_sha256"][:16]}…</code></td>'
                     f'<td><code>{r["manifest"]["engine_version"]}</code></td></tr>'
                     for k, r in enumerate(runs)) + '</tbody></table></div>'),
-    ])
+    ]
+    # pager: back / next buttons at the bottom of every page
+    pages = []
+    for n, sec in enumerate(secs):
+        prev_ = nav_items[n - 1] if n > 0 else None
+        next_ = nav_items[n + 1] if n + 1 < len(nav_items) else None
+        pager = '<div class="pager">' + (
+            f'<a class="pg prev" href="#{prev_[0]}"><span class="pgk">Back</span>{prev_[2]}</a>'
+            if prev_ else '<span></span>') + (
+            f'<a class="pg next" href="#{next_[0]}"><span class="pgk">Next</span>{next_[2]}</a>'
+            if next_ else '<span></span>') + '</div>'
+        i = sec.rindex("</section>")
+        pages.append(sec[:i] + pager + sec[i:])
+    body = "".join(pages)
 
     css_series = "".join(f".s{k}{{stroke:{c[0]}}}.s{k}f{{fill:{c[0]}}}.s{k}bg{{background:{c[0]}}}"
                          for k, c in enumerate(SERIES))
@@ -607,19 +623,31 @@ def render(runs: list[dict]) -> str:
 --good:#4cc38a;--goodbg:#13281e;--bad:#ff8a80;--badbg:#2e1716;--accent:{SERIES[1][1]};--accentbg:#12302e;--tipbg:#18212b}}}}
 {css_series}
 @media (prefers-color-scheme:dark){{{css_series_dark}}}
-*{{box-sizing:border-box}} html{{scroll-behavior:smooth}}
+*{{box-sizing:border-box}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 font-variant-numeric:tabular-nums}}
-.top{{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--rule)}}
-.top-in{{max-width:1080px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:24px}}
-.brand{{display:flex;align-items:center;gap:10px;font-weight:600;white-space:nowrap}}
-.brand svg{{width:26px;height:26px;color:var(--accent)}}
-.brand small{{font-weight:400;color:var(--ink2)}}
-nav{{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}}
-nav a{{color:var(--ink2);text-decoration:none;font-size:14px;padding:6px 10px;border-radius:8px;white-space:nowrap}}
-nav a:hover,nav a:focus-visible{{background:var(--accentbg);color:var(--ink);outline:none}}
-main{{max-width:1080px;margin:0 auto;padding:28px 24px 64px}}
-.card{{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:28px 30px;margin:0 0 22px;scroll-margin-top:72px}}
+.app{{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}}
+.side{{position:sticky;top:0;height:100vh;overflow-y:auto;background:var(--panel);border-right:1px solid var(--rule);
+padding:22px 14px;display:flex;flex-direction:column;gap:18px}}
+.brand{{display:flex;align-items:center;gap:10px;font-weight:600;font-size:18px;padding:0 8px}}
+.brand svg{{width:30px;height:30px;color:var(--accent);flex:none}}
+.brand small{{display:block;font-weight:400;font-size:13px;color:var(--ink2)}}
+nav{{display:flex;flex-direction:column;gap:2px}}
+nav a{{display:flex;align-items:center;gap:12px;color:var(--ink2);text-decoration:none;font-size:15px;
+padding:10px 12px;border-radius:10px}}
+nav a:hover{{background:var(--tipbg);color:var(--ink)}}
+nav a.on{{background:var(--accentbg);color:var(--accent);font-weight:600}}
+.nic{{width:20px;height:20px;flex:none}}
+.side-foot{{margin-top:auto;font-size:12px;color:var(--ink3);padding:0 8px;line-height:1.5}}
+main{{padding:32px 36px 64px;max-width:1120px;width:100%}}
+.js .card{{display:none}} .js .card.on{{display:block}}
+.pager{{display:flex;justify-content:space-between;gap:12px;margin-top:28px;padding-top:20px;border-top:1px solid var(--rule)}}
+.pg{{display:flex;flex-direction:column;text-decoration:none;color:var(--ink);font-weight:600;padding:10px 16px;
+border:1px solid var(--rule);border-radius:12px;min-width:150px}}
+.pg:hover{{border-color:var(--accent);color:var(--accent)}} .pg.next{{text-align:right;margin-left:auto}}
+.pgk{{font-size:12px;font-weight:400;color:var(--ink3)}}
+@media print{{.side,.pager{{display:none}} .app{{display:block}} .js .card{{display:block}}}}
+.card{{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:30px 32px;margin:0 0 22px;scroll-margin-top:90px}}
 .card-h{{display:flex;gap:16px;align-items:flex-start;margin-bottom:18px}}
 .ib{{flex:none;width:44px;height:44px;border-radius:12px;background:var(--accentbg);color:var(--accent);display:grid;place-items:center}}
 .ic{{width:24px;height:24px}}
@@ -687,18 +715,33 @@ tr.group th{{font-weight:600;color:var(--accent);padding-top:22px;font-size:14px
 .note{{color:var(--ink2);font-size:14px;margin:12px 0 0}}
 .method{{margin:0 0 18px;padding-left:20px;color:var(--ink2)}} .method li{{margin:4px 0}}
 code{{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}}
-footer{{text-align:center;color:var(--ink3);font-size:13px;margin-top:8px}}
 :focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}
 @media (max-width:980px){{.tiles{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media (max-width:820px){{.app{{display:block}} .side{{position:sticky;height:auto;flex-direction:row;align-items:center;
+padding:10px 12px;gap:10px;border-right:0;border-bottom:1px solid var(--rule);z-index:5}}
+.brand small,.side-foot,nav a span{{display:none}} nav{{flex-direction:row;overflow-x:auto}} nav a{{padding:9px}}
+main{{padding:18px 12px 48px}}}}
 @media (max-width:560px){{.card{{padding:20px 16px}} .verdict{{font-size:19px}} .tiles{{grid-template-columns:1fr}}
-.top-in{{padding:10px 16px;gap:12px}} .brand small{{display:none}} main{{padding:18px 12px 48px}}}}
-</style></head><body>
-<div class="top"><div class="top-in"><div class="brand">{icon("shield")}RiskLens <small>{sym} risk report</small></div>
-<nav aria-label="Report sections">{nav}</nav></div></div>
-<main>{body}
-<footer>Generated by RiskLens. Simulated results on historical data, not investment advice.</footer>
-</main>
+.pg{{min-width:0}}}}
+</style><script>document.documentElement.classList.add('js')</script></head><body>
+<div class="app">
+<aside class="side">
+<div class="brand">{icon("shield")}<div>RiskLens<small>{sym} risk report</small></div></div>
+<nav aria-label="Report sections">{nav}</nav>
+<div class="side-foot">{period}<br>Simulated results, not investment advice.</div>
+</aside>
+<main>{body}</main>
+</div>
 <script>
+const views=[...document.querySelectorAll('.card')], links=[...document.querySelectorAll('nav a')];
+function go(){{
+  const id=(location.hash||'#summary').slice(1), v=views.find(x=>x.id===id)||views[0];
+  views.forEach(x=>x.classList.toggle('on',x===v));
+  links.forEach(a=>{{const on=a.dataset.view===v.id; a.classList.toggle('on',on);
+    if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');}});
+  requestAnimationFrame(()=>window.scrollTo(0,0));
+}}
+window.addEventListener('hashchange',go); window.addEventListener('load',go); go();
 const D={data_json};
 const F={{dd:v=>(v*100).toFixed(1).replace('-','−')+'%',eq:v=>'$'+Math.round(v).toLocaleString(),
 ex:v=>Math.round(v*100)+'%'}};
