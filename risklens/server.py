@@ -32,6 +32,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from collections import defaultdict, deque
+
 from . import gateway, live, market, report, runner, webapp
 from .data import load_csv, load_manifest, sha256_file
 
@@ -39,9 +41,62 @@ MAX_BODY = 64 * 1024
 RUN_ID_RE = re.compile(r"[0-9a-f]{24}")
 MARKET_SYM_RE = re.compile(r"[A-Z0-9.\-=^]{1,15}")
 
+# Public demo mode (--public): limits so one visitor can't hog a shared server
+PUBLIC = {"posts_per_minute": 60, "runs_per_minute": 20, "max_luck_trials": 1000,
+          "streams_total": 40, "streams_per_client": 4, "max_stored_results": 2000}
+
+
+class RateLimiter:
+    """At most ``per_minute`` events per key in any rolling 60 seconds."""
+
+    def __init__(self, per_minute, clock=time.monotonic):
+        self.per, self.clock = per_minute, clock
+        self.hits = defaultdict(deque)
+        self.lock = threading.Lock()
+
+    def allow(self, key) -> bool:
+        with self.lock:
+            now = self.clock()
+            q = self.hits[key]
+            while q and now - q[0] >= 60:
+                q.popleft()
+            if len(q) >= self.per:
+                return False
+            q.append(now)
+            if len(self.hits) > 10_000:
+                for k in [k for k, v in self.hits.items() if not v]:
+                    del self.hits[k]
+            return True
+
+
+class StreamSlots:
+    """Caps concurrent live streams in total and per client."""
+
+    def __init__(self, total, per_client):
+        self.total, self.per_client = total, per_client
+        self.by_client = defaultdict(int)
+        self.lock = threading.Lock()
+
+    def acquire(self, client) -> bool:
+        with self.lock:
+            if sum(self.by_client.values()) >= self.total or self.by_client[client] >= self.per_client:
+                return False
+            self.by_client[client] += 1
+            return True
+
+    def release(self, client):
+        with self.lock:
+            self.by_client[client] -= 1
+            if self.by_client[client] <= 0:
+                del self.by_client[client]
+
 
 class App:
-    def __init__(self, data_dir: str, results_dir: str):
+    def __init__(self, data_dir: str, results_dir: str, public: bool = False):
+        self.public = public
+        self.post_limit = RateLimiter(PUBLIC["posts_per_minute"])
+        self.run_limit = RateLimiter(PUBLIC["runs_per_minute"])
+        self.streams = StreamSlots(PUBLIC["streams_total"], PUBLIC["streams_per_client"])
         self.data_dir = data_dir
         self.results_dir = results_dir
         os.makedirs(results_dir, exist_ok=True)
@@ -84,6 +139,20 @@ class App:
         with open(tmp, "w") as f:
             json.dump(result, f, separators=(",", ":"))
         os.replace(tmp, self._path(rid))      # atomic: readers never see half a file
+        if self.public:
+            self._prune()
+
+    def _prune(self):
+        """Public mode: keep the store bounded (results can always be recomputed)."""
+        files = [f for f in os.listdir(self.results_dir) if f.endswith(".json")]
+        if len(files) <= PUBLIC["max_stored_results"]:
+            return
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(self.results_dir, f)))
+        for f in files[:len(files) - PUBLIC["max_stored_results"] + 200]:
+            try:
+                os.remove(os.path.join(self.results_dir, f))
+            except OSError:
+                pass
 
     # --------------------------------------------------------- overview
     def overview(self):
@@ -191,21 +260,28 @@ def make_handler(app: App, quiet: bool = True):
                 start = max(0, int(q.get("from", ["0"])[0]))
             except (ValueError, json.JSONDecodeError) as e:
                 return self._err(400, str(e))
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-
-            def emit(kind, payload):
-                try:
-                    self.wfile.write(f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode())
-                    self.wfile.flush()
-                except (BrokenPipeError, ConnectionError, OSError):
-                    raise live.ClientGone()
+            slot = self._stream_slot()
+            if slot is None:
+                return
             try:
-                live.stream(cfg, ds["path"], emit, start=start, speed=speed)
-            except live.ClientGone:
-                pass
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+
+                def emit(kind, payload):
+                    try:
+                        self.wfile.write(f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode())
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionError, OSError):
+                        raise live.ClientGone()
+                try:
+                    live.stream(cfg, ds["path"], emit, start=start, speed=speed)
+                except live.ClientGone:
+                    pass
+            finally:
+                if app.public:
+                    app.streams.release(slot)
 
         def _market(self, q):
             sym = q.get("symbol", ["BTC-USD"])[0].upper()
@@ -217,25 +293,32 @@ def make_handler(app: App, quiet: bool = True):
                 dd = float(q.get("dd", ["0.15"])[0])
                 if not (0.01 <= vol <= 2 and 0.005 <= dd <= 0.99):
                     raise ValueError("vol must be 0.01-2 and dd 0.005-0.99")
-                provider, poll = market.make_provider(source, sym)
+                provider, poll = market.make_provider(source, sym, public=app.public)
             except ValueError as e:
                 return self._err(400, str(e))
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-
-            def emit(kind, payload):
-                try:
-                    self.wfile.write(f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode())
-                    self.wfile.flush()
-                except (BrokenPipeError, ConnectionError, OSError):
-                    raise market.ClientGone()
+            slot = self._stream_slot()
+            if slot is None:
+                return
             try:
-                market.stream(sym, provider, emit, vol_target=vol, dd_limit=dd, poll_seconds=poll,
-                              on_quote=app.gateway.mark)
-            except market.ClientGone:
-                pass
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+
+                def emit(kind, payload):
+                    try:
+                        self.wfile.write(f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode())
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionError, OSError):
+                        raise market.ClientGone()
+                try:
+                    market.stream(sym, provider, emit, vol_target=vol, dd_limit=dd, poll_seconds=poll,
+                                  on_quote=app.gateway.mark)
+                except market.ClientGone:
+                    pass
+            finally:
+                if app.public:
+                    app.streams.release(slot)
 
         def do_GET(self):
             u = urlparse(self.path)
@@ -255,7 +338,8 @@ def make_handler(app: App, quiet: bool = True):
                 except gateway.GatewayError as e:
                     return self._err(400, str(e))
             if u.path == "/health":
-                return self._send(200, {"ok": True, "engine_version": app.version, **app.stats})
+                return self._send(200, {"ok": True, "engine_version": app.version, "public": app.public,
+                                        **app.stats})
             if u.path == "/datasets":
                 return self._send(200, {s: {k: v for k, v in e.items() if k != "path"}
                                         for s, e in app.datasets.items()})
@@ -289,6 +373,23 @@ def make_handler(app: App, quiet: bool = True):
                 self._err(400, "body is not valid JSON")
                 return None
 
+        def _client(self):
+            if app.public:                     # behind the host's proxy
+                fwd = self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                if fwd:
+                    return fwd
+            return self.client_address[0]
+
+        def _stream_slot(self):
+            """Public mode: claim a live-stream slot, or send 429 and return None."""
+            if not app.public:
+                return "local"
+            c = self._client()
+            if not app.streams.acquire(c):
+                self._err(429, "too many live streams open; close another tab and retry")
+                return None
+            return c
+
         def _sid(self):
             return self.headers.get("X-RiskLens-Session") or "local-default"
 
@@ -315,6 +416,8 @@ def make_handler(app: App, quiet: bool = True):
 
         def do_POST(self):
             path = urlparse(self.path).path
+            if app.public and not app.post_limit.allow(self._client()):
+                return self._err(429, "too many requests; wait a minute")
             if path.startswith("/api/gateway/"):
                 return self._gateway_post(path)
             if path != "/runs":
@@ -322,6 +425,14 @@ def make_handler(app: App, quiet: bool = True):
             cfg = self._body()
             if cfg is None:
                 return
+            if app.public:
+                lt = cfg.get("luck_test") if isinstance(cfg, dict) else None
+                trials = lt.get("trials", 1000) if isinstance(lt, dict) else 1000
+                if type(trials) is int and trials > PUBLIC["max_luck_trials"]:
+                    return self._err(400, f"the public demo runs at most {PUBLIC['max_luck_trials']:,} "
+                                          f"luck-test shuffles")
+                if not app.run_limit.allow(self._client()):
+                    return self._err(429, "too many analyses this minute; wait a moment")
             try:
                 t0 = time.perf_counter()
                 result, cached = app.submit(cfg)
@@ -343,8 +454,8 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = os.name != "nt"
 
 
-def serve(host, port, data_dir, results_dir, quiet=True):
-    app = App(data_dir, results_dir)
+def serve(host, port, data_dir, results_dir, quiet=True, public=False):
+    app = App(data_dir, results_dir, public=public)
     try:
         httpd = _Server((host, port), make_handler(app, quiet))
     except OSError as e:
@@ -356,17 +467,24 @@ def serve(host, port, data_dir, results_dir, quiet=True):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="RiskLens run server")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--host", default=None, help="default 127.0.0.1, or 0.0.0.0 with --public")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)),
+                    help="default $PORT if set (hosting services), else 8765")
+    ap.add_argument("--public", action="store_true",
+                    help="public demo: listen on all interfaces, rate limits, capped streams and store")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--results-dir", default="results")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args(argv)
-    app, httpd = serve(a.host, a.port, a.data_dir, a.results_dir, quiet=not a.verbose)
+    a.host = a.host or ("0.0.0.0" if a.public else "127.0.0.1")
+    app, httpd = serve(a.host, a.port, a.data_dir, a.results_dir, quiet=not a.verbose,
+                       public=a.public)
     names = ", ".join(f"{s}({e['rows']})" for s, e in app.datasets.items()) or "none"
     print(f"RiskLens server on http://{a.host}:{a.port}  engine={app.version}  "
           f"datasets={names}", flush=True)
-    print(f"Open the app in your browser: http://{a.host}:{a.port}/", flush=True)
+    shown = "127.0.0.1" if a.host == "0.0.0.0" else a.host
+    print(f"Open the app in your browser: http://{shown}:{a.port}/"
+          + ("  (public demo mode: rate limits on)" if a.public else ""), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -1,0 +1,10 @@
+.git
+results
+reports
+tests
+bench
+**/__pycache__
+.pytest_cache
+.hypothesis
+data/*.csv
+!data/SYNTH.csv

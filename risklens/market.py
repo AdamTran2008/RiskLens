@@ -349,13 +349,30 @@ class CoinbaseProvider:
             self._cond.notify_all()
 
 
-def make_provider(source, symbol):
-    """source: auto | coinbase | yahoo | sim. Auto picks Coinbase for crypto."""
+class UnavailableProvider:
+    """Stands in for a source this server cannot offer; reports why and stops."""
+    simulated, push = False, False
+
+    def __init__(self, name, why):
+        self.name, self.why = name, why
+
+    def bars(self, symbol):
+        raise FeedError(self.why, fatal=True)
+
+
+def make_provider(source, symbol, public=False):
+    """source: auto | coinbase | yahoo | sim. Auto picks Coinbase for crypto.
+    On the public demo server, Yahoo is unavailable (cloud servers are often
+    blocked by Yahoo, and its terms are for personal use)."""
     if source == "auto":
         source = "coinbase" if is_crypto(symbol) else "yahoo"
     if source == "coinbase":
         return CoinbaseProvider(), 15.0                # heartbeat if no trade in 15 s
     if source == "yahoo":
+        if public:
+            return UnavailableProvider("Yahoo Finance", "Stock prices from Yahoo are only available "
+                                       "when you run RiskLens on your own computer. On this public "
+                                       "demo, try a crypto pair (BTC-USD) or the simulated feed."), 20.0
         return YahooProvider(), 20.0
     if source == "sim":
         return SimProvider(), 2.0

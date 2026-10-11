@@ -486,7 +486,7 @@ function route(){const p=(location.hash.match(/#\/(\w+)/)||[])[1]||'overview';co
 window.addEventListener('hashchange',route);
 
 /* ---------------- health ---------------- */
-async function health(){try{const h=await api('/health');$('hdot').className='dot';$('hstat').textContent='Engine online';
+async function health(){try{const h=await api('/health');$('hdot').className='dot';$('hstat').textContent=h.public?'Public demo online':'Engine online';
  $('hver').textContent=h.engine_version;$('hcount').textContent=`${h.runs_computed} runs computed, ${h.cache_hits} served from store`}
  catch(e){$('hdot').className='dot off';$('hstat').textContent='Engine offline'}}
 setInterval(health,8000);

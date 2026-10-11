@@ -1,0 +1,3 @@
+# Runtime for the hosted web app. The engine itself is standard library only;
+# this one package adds the real-time Coinbase crypto feed.
+websocket-client>=1.6,<2
