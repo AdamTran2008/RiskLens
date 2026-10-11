@@ -9,6 +9,9 @@
 3. luck     luck-test time vs number of shuffles
 4. server   HTTP latency: cold runs (computed) vs cache hits, 1 and 8
             concurrent clients; server pinned to CPU 0, clients to CPU 1
+5. live     live market pipeline: time from a trade message arriving on the
+            (fake, in-memory) Coinbase socket to the risk update reaching an
+            SSE client over loopback; plus risk-snapshot compute time
 Synthetic data (seeded) is used so anyone can reproduce the numbers.
 """
 from __future__ import annotations
@@ -211,8 +214,108 @@ def bench_server(tmp):
         "server_stats": health, "server_peak_rss_mb": rss})
 
 
+# ------------------------------------------------------------- 5. live feed
+def bench_live(tmp, n=200):
+    """Server-side latency of the live market pipeline, excluding the internet:
+    trade message handed to the socket reader -> SSE "tick" line read by the client."""
+    import http.client
+    import queue
+    from risklens import market, server as srv
+
+    class Sock:                                  # stands in for Coinbase's WebSocket
+        def __init__(self):
+            self.q, self.closed = queue.Queue(), False
+
+        def send(self, s):
+            pass
+
+        def recv(self):
+            while not self.closed:
+                try:
+                    return self.q.get(timeout=0.05)
+                except queue.Empty:
+                    pass
+            raise ConnectionError("closed")
+
+        def close(self):
+            self.closed = True
+
+    sock = Sock()
+
+    def candles(product):
+        rng, px, t0, rows = random.Random(5), 60000.0, int(time.time()) // 60 * 60 - 300 * 60, []
+        for i in range(300):
+            o = px
+            px *= 1 + rng.gauss(0, 0.0008)
+            rows.append([t0 + i * 60, min(o, px), max(o, px), o, px, 1.0])
+        return rows[::-1]
+
+    snap = {}
+    bars = [(f"{i:06d}", 100.0, 101.0, 99.0, 100 + (i % 7) * 0.1, 1.0) for i in range(1440)]
+    for k in (300, 1440):
+        ts = []
+        for _ in range(2000):
+            t0 = time.perf_counter()
+            market.snapshot("BTC-USD", bars[:k])
+            ts.append((time.perf_counter() - t0) * 1000)
+        snap[f"{k}_bars"] = {key: round(v, 3) for key, v in lat(ts).items() if key != "n"}
+
+    orig = market.make_provider
+    market.make_provider = lambda source, sym: (
+        market.CoinbaseProvider(connect=lambda url: sock, fetch_candles=candles), 15.0)
+    d = os.path.join(tmp, "live-data")
+    os.makedirs(d)
+    app, httpd = srv.serve("127.0.0.1", 0, d, os.path.join(tmp, "live-res"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=10)
+        conn.request("GET", "/api/market?symbol=BTC-USD&source=coinbase")
+        resp = conn.getresponse()
+        fp = resp.fp
+
+        def next_event():
+            kind = None
+            while True:
+                line = fp.readline()
+                if line.startswith(b"event: "):
+                    kind = line[7:].strip().decode()
+                elif line.startswith(b"data: "):
+                    return kind, line[6:]
+        assert next_event()[0] == "snap"
+        e2e, compute, px = [], [], 60000.0
+        for i in range(n):
+            px *= 1.0002 if i % 2 else 0.9998
+            t = time.time()
+            msg = json.dumps({"type": "ticker", "product_id": "BTC-USD", "price": f"{px:.2f}",
+                              "last_size": "0.01", "time": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t))
+                              + f".{int(t % 1 * 1e6):06d}Z"})
+            t0 = time.perf_counter()
+            sock.q.put(msg)
+            while True:
+                kind, data = next_event()
+                if kind == "tick":
+                    break
+            e2e.append((time.perf_counter() - t0) * 1000)
+            compute.append(json.loads(data)["lat"]["compute_ms"])
+            time.sleep(0.12)                     # > the 100 ms batching window: one tick per trade
+        conn.close()
+    finally:
+        market.make_provider = orig
+        httpd.shutdown()
+        httpd.server_close()
+    save("live.json", {
+        "env": env(),
+        "workload": f"{n} trades, one every 120 ms, BTC-USD session of 300 backfilled 1-minute bars; "
+                    "fake in-memory Coinbase socket; SSE client in the same process over loopback",
+        "trade_to_browser_socket_ms": lat(e2e),
+        "risk_snapshot_compute_ms_in_pipeline": lat(compute),
+        "risk_snapshot_compute_ms_microbench": snap,
+        "not_included": "internet time from Coinbase to your machine (shown live in the app as "
+                        "'Exchange -> server') and browser rendering"})
+
+
 def main():
-    which = sys.argv[1:] or ["engine", "run", "server"]
+    which = sys.argv[1:] or ["engine", "run", "server", "live"]
     tmp = tempfile.mkdtemp(prefix="risklens-bench-")
     try:
         if "engine" in which:
@@ -223,6 +326,8 @@ def main():
             bench_run_and_luck(tmp)
         if "server" in which:
             bench_server(tmp)
+        if "live" in which:
+            bench_live(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

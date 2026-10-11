@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .hypothesis/
-results/
+/results/
 reports/
 # real market data is downloaded locally, never redistributed
 data/*.csv

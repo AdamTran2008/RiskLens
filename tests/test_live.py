@@ -1,4 +1,4 @@
-"""Live monitor and web app: the streamed replay must agree exactly with the
+"""Replay and web app: the streamed replay must agree exactly with the
 batch engine, resuming mid-way must not change anything, and the app's API
 endpoints must work end to end over HTTP."""
 import json
@@ -84,7 +84,7 @@ def get(url):
 def test_app_page_and_apis(srv):
     app, base = srv
     ctype, html = get(base + "/")
-    assert ctype.startswith("text/html") and "Live monitor" in html and app.version in html
+    assert ctype.startswith("text/html") and "Live market" in html and "Replay" in html and app.version in html
     cards = json.loads(get(base + "/api/overview")[1])
     assert cards[0]["symbol"] == "S" and cards[0]["status"] in ("calm", "elevated", "stressed")
     # overview snapshots are internal, so history starts empty

@@ -1,0 +1,65 @@
+{
+  "env": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "logical_cpus": 2,
+    "affinity": [
+      0
+    ],
+    "os": "Linux 6.18.44-fc-v114",
+    "python": "3.13.16"
+  },
+  "strategy": "sma_cross(50,200) + vol target 15% + breaker 15%",
+  "results": [
+    {
+      "years": 10,
+      "bars": 2520,
+      "invariant_checks": true,
+      "seconds": 0.0139,
+      "bars_per_s": 181078,
+      "trades": 261
+    },
+    {
+      "years": 10,
+      "bars": 2520,
+      "invariant_checks": false,
+      "seconds": 0.013,
+      "bars_per_s": 193282,
+      "trades": 261
+    },
+    {
+      "years": 100,
+      "bars": 25200,
+      "invariant_checks": true,
+      "seconds": 0.1442,
+      "bars_per_s": 174701,
+      "trades": 2227
+    },
+    {
+      "years": 100,
+      "bars": 25200,
+      "invariant_checks": false,
+      "seconds": 0.1504,
+      "bars_per_s": 167590,
+      "trades": 2227
+    },
+    {
+      "years": 1000,
+      "bars": 252000,
+      "invariant_checks": true,
+      "seconds": 1.4209,
+      "bars_per_s": 177357,
+      "trades": 22408
+    },
+    {
+      "years": 1000,
+      "bars": 252000,
+      "invariant_checks": false,
+      "seconds": 1.3898,
+      "bars_per_s": 181326,
+      "trades": 22408
+    }
+  ],
+  "peak_traced_memory_mb_100y": 4.3,
+  "bytes_per_bar_100y": 169,
+  "deterministic_fingerprint_match": true
+}

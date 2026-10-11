@@ -1,0 +1,26 @@
+{
+  "env": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "logical_cpus": 2,
+    "affinity": [
+      0
+    ],
+    "os": "Linux 6.18.44-fc-v114",
+    "python": "3.13.16"
+  },
+  "days": 2519,
+  "results": [
+    {
+      "trials": 100,
+      "seconds": 0.103
+    },
+    {
+      "trials": 1000,
+      "seconds": 0.888
+    },
+    {
+      "trials": 5000,
+      "seconds": 4.293
+    }
+  ]
+}

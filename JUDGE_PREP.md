@@ -6,23 +6,53 @@ real stock prices. It shows how risky the strategy really is (worst drawdown,
 Value-at-Risk, volatility) and what risk rules like a drawdown circuit breaker
 would have saved you. Its core promise is that you can trust the numbers: it
 physically can't see the future, the money balances to the cent every day,
-and every result is reproducible from a hash. We proved those with 62 tests,
-and when we planted 11 bugs, the tests caught all 11."
+and every result is reproducible from a hash. We proved those with 82 tests,
+and when we planted 11 bugs, the tests caught all 11. And it runs live: it
+watches real prices trade by trade and tells you, right now, what your risk
+rules would do."
 
 ## Demo (3 minutes)
 1. Start the server (`python -m risklens.server`) and open **http://127.0.0.1:8765/**.
-2. **Overview:** "Every stock we downloaded, with its current risk status."
-3. **Analyze:** pick SPY, Trend 50/200, 15% volatility target and 15% breaker,
+2. **Live market (open with this, it's the most alive):** click **BTC** and
+   Connect. "These are real Bitcoin trades from Coinbase, pushed to us the
+   moment they happen. On every trade we recompute the risk: the volatility
+   target says hold X% right now, and we're Y% below the session high against
+   a 15% breaker." Point at the latency panel: "We measure our own latency.
+   Our server adds about a millisecond; the rest is the internet."
+   *Judging is on a weekend: US stocks are closed, so use crypto. SPY will
+   show Friday's session and then "No new prices", which is correct.*
+   *If the Wi-Fi is bad:* switch the source to **Simulated · offline** (it is
+   clearly labeled SIMULATED).
+3. **Overview:** "Every stock we downloaded, with its current risk status."
+4. **Analyze:** pick SPY, Trend 50/200, 15% volatility target and 15% breaker,
    then Run. Walk through Summary → Drawdowns → Stress tests (COVID crash).
-4. **Live monitor:** press Start on Fast. Talk while it runs: "This is the
+5. **Replay:** press Start on Fast. Talk while it runs: "This is the
    engine replaying 15 years one day at a time. Watch the teal line stay
    shallower in the drawdown chart. When the breaker fires, it shows up here
    in the alert feed." Pause during the COVID crash (early 2020) to show it.
-5. **History:** "Every run is saved and reproducible from its ID."
-6. If asked about correctness: `python -m pytest -q` (62 passed) and
+6. **History:** "Every run is saved and reproducible from its ID."
+7. If asked about correctness: `python -m pytest -q` (82 passed) and
    `./scripts/mutation_check.sh` (11/11).
 
 ## Likely questions
+
+**"How low is your latency?"**
+"Our part is under a millisecond: 0.88 ms median from a trade arriving to the
+update leaving for the browser, measured with `bench/bench.py live`. The
+screen shows the full chain live, including the internet hop from Coinbase.
+We don't poll: the socket reader wakes the risk loop the instant a trade
+lands, and we turned off Nagle's algorithm so updates aren't held back. For
+stocks we only have Yahoo's free feed, which is a minute delayed, and we say
+so on screen."
+
+**"Why Coinbase and not TradingView?"**
+TradingView has no public data API (only chart widgets), and scraping it
+breaks its terms. Coinbase publishes a free, real-time, public WebSocket.
+
+**"What if the live feed drops?"**
+The app says so in the alert feed, reconnects every few seconds, and refills
+the missed minutes from Coinbase's own 1-minute candles, so the chart and
+volatility have no hole. Tested with a fake socket.
 
 **"Which invariant matters most, and how do your tests try to break it?"**
 No look-ahead. The test takes a random market, picks a day k, and **replaces
@@ -80,4 +110,4 @@ of the 2nd. That's exactly the kind of silent error that makes backtests lie."
 
 ## Numbers to know
 ~180,000 bars/s · 10-year run simulates in 12 ms · luck test 97% of time ·
-cached result 2 ms · 62 tests · 11/11 mutations caught · money in integer cents.
+cached result 2 ms · live pipeline 0.88 ms p50 · 82 tests · 11/11 mutations caught · money in integer cents.

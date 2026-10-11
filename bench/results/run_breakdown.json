@@ -1,0 +1,18 @@
+{
+  "env": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "logical_cpus": 2,
+    "affinity": [
+      0
+    ],
+    "os": "Linux 6.18.44-fc-v114",
+    "python": "3.13.16"
+  },
+  "workload": "10 years (2,520 bars), 1,000 luck shuffles",
+  "best_of_5_ms": {
+    "load": 9.88,
+    "simulate": 11.92,
+    "luck_test": 851.85,
+    "total": 875.34
+  }
+}

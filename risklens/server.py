@@ -32,11 +32,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import live, report, runner, webapp
+from . import live, market, report, runner, webapp
 from .data import load_csv, load_manifest, sha256_file
 
 MAX_BODY = 64 * 1024
 RUN_ID_RE = re.compile(r"[0-9a-f]{24}")
+MARKET_SYM_RE = re.compile(r"[A-Z0-9.\-=^]{1,15}")
 
 
 class App:
@@ -157,6 +158,7 @@ class App:
 
 def make_handler(app: App, quiet: bool = True):
     class Handler(BaseHTTPRequestHandler):
+        disable_nagle_algorithm = True     # send each streamed update immediately
         server_version = "RiskLens/1.0"
 
         def log_message(self, fmt, *args):
@@ -204,8 +206,39 @@ def make_handler(app: App, quiet: bool = True):
             except live.ClientGone:
                 pass
 
+        def _market(self, q):
+            sym = q.get("symbol", ["BTC-USD"])[0].upper()
+            source = q.get("source", ["auto"])[0]
+            try:
+                if not MARKET_SYM_RE.fullmatch(sym):
+                    raise ValueError("symbol must be 1-15 letters, digits or . - = ^")
+                vol = float(q.get("vol", ["0.15"])[0])
+                dd = float(q.get("dd", ["0.15"])[0])
+                if not (0.01 <= vol <= 2 and 0.005 <= dd <= 0.99):
+                    raise ValueError("vol must be 0.01-2 and dd 0.005-0.99")
+                provider, poll = market.make_provider(source, sym)
+            except ValueError as e:
+                return self._err(400, str(e))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+            def emit(kind, payload):
+                try:
+                    self.wfile.write(f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionError, OSError):
+                    raise market.ClientGone()
+            try:
+                market.stream(sym, provider, emit, vol_target=vol, dd_limit=dd, poll_seconds=poll)
+            except market.ClientGone:
+                pass
+
         def do_GET(self):
             u = urlparse(self.path)
+            if u.path == "/api/market":
+                return self._market(parse_qs(u.query))
             if u.path in ("/", "/app"):
                 return self._send(200, webapp.page(app.version), "text/html")
             if u.path == "/api/overview":

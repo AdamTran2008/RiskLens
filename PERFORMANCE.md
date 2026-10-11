@@ -66,11 +66,32 @@ bull market, crash, volatile recovery, sideways chop).
 
 Server peak RSS: 28 MB. Server stats confirmed 20 runs computed and 2,500 cache hits.
 
+### Live market pipeline (`bench/results/live.json`)
+Run on a 2-vCPU Intel Xeon @ 2.10 GHz VM (a different VM from the tables
+above), CPython 3.13. Workload: 200 BTC-USD trades, one every 120 ms, fed
+into the real `CoinbaseProvider` through an in-memory fake socket, over a
+session of 300 backfilled 1-minute bars; an SSE client in the same process
+reads the updates over loopback.
+
+| Stage | p50 | p90 | p99 | max |
+|---|---:|---:|---:|---:|
+| Trade message arrives → risk update read by the client | **0.88 ms** | 1.16 ms | 1.98 ms | 3.56 ms |
+| Risk snapshot inside that (300 bars) | 0.13 ms | 0.18 ms | 0.26 ms | 1.06 ms |
+| Risk snapshot alone, 1,440 bars (a full day) | 0.18 ms | 0.21 ms | 0.35 ms | 2.11 ms |
+
+**Not included, and measured live in the app instead:** the internet hop
+from Coinbase to your machine ("Exchange → server", Coinbase's trade
+timestamp vs. your clock) and browser rendering. The app's latency panel
+shows medians of the last 40 updates for exchange → server, risk
+calculation, server → browser, and trade → your screen.
+
 ## 4. Procedure
 ```bash
-python3 bench/bench.py                 # everything (~50 s)
-python3 bench/bench.py engine          # just one section: engine | run | server
+python3 bench/bench.py                 # everything (~75 s)
+python3 bench/bench.py engine          # just one section: engine | run | server | live
 ```
+For live, end-to-end numbers: start the server, open Live market, connect to
+BTC-USD, and read the latency panel after a minute.
 
 ## 5. Interpretation
 
@@ -88,6 +109,18 @@ returns), or stop early once the p-value is clearly above or below 0.05.
 in ~2 ms versus ~900 ms to compute, a ~450× speed-up, and it is guaranteed
 identical because the ID is the hash of config + data + engine version. With
 8 concurrent clients, throughput is 455 req/s and latency rises to 16 ms p50.
+
+**Live: our part of the latency is about 1 ms; the internet is the rest.**
+From a trade arriving on the socket to the update being in the browser's
+socket takes 0.88 ms p50, of which the risk recalculation is ~0.13 ms. Two
+choices keep it there: the stream loop *waits on a condition variable* that
+the socket reader signals the instant a trade lands (no polling interval),
+and Nagle's algorithm is turned off on the HTTP connection so each update is
+sent immediately instead of being held to fill a packet. Bursts are batched
+to at most 10 updates per second, a deliberate trade-off: a trade can wait up
+to 100 ms in a burst so the browser isn't flooded. For stocks, Yahoo's free
+data is ~1 minute delayed and polled every 20 s, so the honest stock latency
+is "about a minute", and the app says so rather than pretending otherwise.
 Each hit re-reads and re-parses a ~110–130 KB JSON file under Python's GIL, so the
 next fix is an in-memory LRU cache of hot results.
 

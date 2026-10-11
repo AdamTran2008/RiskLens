@@ -1,11 +1,14 @@
 """The RiskLens web app, served by the run server at http://127.0.0.1:8765/
 
-One self-contained page (no build step, no external JS) with four screens:
-  Overview   risk snapshot of every downloaded dataset (watchlist cards)
-  Analyze    controls for stock, strategy and risk rules; runs and shows the report
-  Live       replays history through the engine day by day, streaming risk
-             metrics and alerts like a risk desk monitor (Server-Sent Events)
-  History    every stored run, reopenable
+One self-contained page (no build step, no external JS) with five screens:
+  Overview      risk snapshot of every downloaded dataset (watchlist cards)
+  Live market   real prices as they happen (Coinbase real-time for crypto,
+                Yahoo delayed for stocks) with live risk feedback, alerts and
+                a measured latency breakdown (Server-Sent Events)
+  Analyze       controls for stock, strategy and risk rules; runs and shows the report
+  Replay        replays history through the engine day by day, streaming risk
+                metrics and alerts like a risk desk monitor
+  History       every stored run, reopenable
 All numbers come from the server's API; the page only displays them.
 """
 from __future__ import annotations
@@ -26,6 +29,9 @@ def _icons_json() -> str:
         "play": '<path d="M8 5l11 7-11 7z"/>',
         "pause": '<path d="M8 5v14M16 5v14"/>',
         "restart": '<path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v5h5"/>',
+        "radio": '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+        "timer": '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/>',
+        "range": '<path d="M4 7h16M4 17h16M8 4v6M16 14v6"/>',
         "external": '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
     })
 
@@ -168,13 +174,37 @@ canvas{width:100%;display:block}
 .feed span{color:var(--ink3)}
 .endbox{padding:14px 16px;margin-bottom:16px;display:none;border-left:4px solid var(--accent)}
 .endbox.on{display:block}
+/* live market */
+.symin{border:1px solid var(--rule);border-radius:8px;padding:7px 10px;background:var(--panel);width:128px;text-transform:uppercase;font-weight:600}
+.qchips{display:flex;gap:6px;flex-wrap:wrap}
+.qchip{border:1px solid var(--rule);background:var(--soft);border-radius:999px;padding:4px 11px;font-size:13px;cursor:pointer}
+.qchip:hover{border-color:var(--accent);color:var(--accent)}
+.lv-bar input[type=search]::-webkit-search-cancel-button{display:none}
+.mpx{font-size:30px;font-weight:600;border-radius:8px;padding:0 6px}
+.mpx.up{animation:fup .9s}.mpx.dn{animation:fdn .9s}
+@keyframes fup{from{background:var(--goodbg);color:var(--good)}}@keyframes fdn{from{background:var(--badbg);color:var(--bad)}}
+.mchg{font-size:14px;font-weight:600;color:var(--ink2)}.mchg.pos{color:var(--good)}.mchg.neg{color:var(--bad)}
+.clock .live.wait{color:var(--warn)}.clock .live.wait i{background:var(--warn);animation:pulse .8s infinite}
+.clock .live.stale{color:var(--warn)}.clock .live.stale i{background:var(--warn)}
+.srcline{margin:-6px 0 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--ink2)}
+.tag{font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px;background:var(--accent2);color:var(--accent)}
+.tag.sim,.tag.delay{background:var(--warnbg);color:var(--warn)}
+.side{position:sticky;top:16px;display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 32px)}
+.side .alerts{position:static;min-height:0;flex:1;max-height:none}
+.lat{padding:16px}
+.lat h4{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+.lat dl{display:grid;grid-template-columns:1fr auto;gap:7px 12px;margin:0;font-size:14px}
+.lat dt{color:var(--ink2)}.lat dd{margin:0;font-weight:600;text-align:right}
+.lat .tot{border-top:1px solid var(--rule);padding-top:8px;font-size:16px}
+.lat p{font-size:12px;color:var(--ink3);margin:10px 0 0;line-height:1.45}
+.kpi .v.sm{font-size:18px;padding:3px 0 2px}
 /* history */
 table{border-collapse:collapse;width:100%}
 th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--rule);font-size:14px;white-space:nowrap}
 thead th{font-size:12px;color:var(--ink2);font-weight:600;background:var(--soft)}
 td.num,th.num{text-align:right}
 .scroll{overflow-x:auto}
-@media (max-width:1100px){.lv{grid-template-columns:1fr} .alerts{position:static;max-height:420px}}
+@media (max-width:1100px){.lv{grid-template-columns:1fr} .alerts{position:static;max-height:420px} .side{position:static;max-height:none} .side .alerts{max-height:420px}}
 @media (max-width:900px){.an{grid-template-columns:1fr} .form{position:static} .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:760px){.shell{display:block} .nav{position:sticky;height:auto;flex-direction:row;align-items:center;padding:8px;z-index:9;overflow-x:auto}
 .brand{padding:4px 8px} .brand span,.nav a span,.navfoot{display:none} .top,.page{padding-left:14px;padding-right:14px}}
@@ -183,17 +213,62 @@ td.num,th.num{text-align:right}
 <aside class="nav" aria-label="Main">
   <div class="brand"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg><span>RiskLens</span></div>
   <a href="#/overview" data-p="overview"><i data-i="grid"></i><span>Overview</span></a>
+  <a href="#/market" data-p="market"><i data-i="radio"></i><span>Live market</span></a>
   <a href="#/analyze" data-p="analyze"><i data-i="sliders"></i><span>Analyze</span></a>
-  <a href="#/live" data-p="live"><i data-i="pulse"></i><span>Live monitor</span></a>
+  <a href="#/replay" data-p="replay"><i data-i="pulse"></i><span>Replay</span></a>
   <a href="#/history" data-p="history"><i data-i="clock"></i><span>History</span></a>
   <div class="navfoot"><span class="dot" id="hdot"></span><b id="hstat">Engine online</b><br>
-  engine <span id="hver">__VERSION__</span><br><span id="hcount"></span><br><br>Simulated results on historical data. Not investment advice.</div>
+  engine <span id="hver">__VERSION__</span><br><span id="hcount"></span><br><br>Simulated results, no real orders. Not investment advice.</div>
 </aside>
 <div class="main">
   <header class="top"><div><h1 id="ptitle">Overview</h1><p id="psub"></p></div></header>
 
   <section class="page" id="p-overview">
     <div class="cards" id="cards"><div class="card empty">Loading datasets…</div></div>
+  </section>
+
+  <section class="page" id="p-market">
+    <div class="card lv-bar">
+      <input class="symin" id="m-sym" type="search" list="m-list" maxlength="15" aria-label="Symbol" placeholder="BTC-USD" autocomplete="off" spellcheck="false">
+      <datalist id="m-list"><option>BTC-USD</option><option>ETH-USD</option><option>SOL-USD</option><option>DOGE-USD</option><option>SPY</option><option>AAPL</option><option>QQQ</option></datalist>
+      <div class="qchips" id="m-quick"><button class="qchip" type="button" data-s="BTC-USD">BTC</button><button class="qchip" type="button" data-s="ETH-USD">ETH</button>
+        <button class="qchip" type="button" data-s="SOL-USD">SOL</button><button class="qchip" type="button" data-s="SPY">SPY</button><button class="qchip" type="button" data-s="AAPL">AAPL</button></div>
+      <select id="m-src" aria-label="Data source"><option value="auto">Auto source</option><option value="coinbase">Coinbase · real-time crypto</option>
+        <option value="yahoo">Yahoo · stocks, delayed</option><option value="sim">Simulated · offline</option></select>
+      <span class="chip" id="m-cfg"></span>
+      <span class="grow"></span>
+      <button class="btn primary" id="m-go" type="button"><i data-i="play"></i>Connect</button>
+    </div>
+    <div class="clock"><span class="date" id="m-symbig">BTC-USD</span><span class="mpx" id="m-px">–</span><span class="mchg" id="m-chg"></span>
+      <span class="live" id="m-live"><i></i><span>Offline</span></span>
+      <span class="pill calm" id="m-brk" style="margin-left:auto;display:none"></span></div>
+    <div class="srcline" id="m-srcline">Press Connect. Crypto pairs stream trade by trade from Coinbase, around the clock.</div>
+    <div class="lv">
+      <div>
+        <div class="kpis">
+          <div class="card kpi"><div class="k"><i data-i="pie"></i>Rules allow you to hold</div><div class="v" id="m-x">–</div><div class="s" id="m-x2">Volatility targeting, right now</div></div>
+          <div class="card kpi"><div class="k"><i data-i="down"></i>Below session high</div><div class="v" id="m-dd">–</div><div class="s" id="m-dd2"></div></div>
+          <div class="card kpi"><div class="k"><i data-i="wave"></i>Volatility, last 60 min</div><div class="v" id="m-vol">–</div><div class="s" id="m-vol2"></div></div>
+          <div class="card kpi"><div class="k"><i data-i="shield"></i>1-minute VaR 95%</div><div class="v" id="m-var">–</div><div class="s" id="m-var2"></div></div>
+          <div class="card kpi"><div class="k"><i data-i="range"></i>Session range</div><div class="v sm" id="m-rng">–</div><div class="s" id="m-rng2"></div></div>
+          <div class="card kpi"><div class="k"><i data-i="bolt"></i>Feed activity</div><div class="v" id="m-act">–</div><div class="s" id="m-act2"></div></div>
+        </div>
+        <div class="card chartcard"><h4>Price, 1-minute bars <span class="lg"><i style="background:var(--accent)"></i>Price</span>
+          <span class="lg"><i style="background:var(--base)"></i>Session high</span></h4><canvas id="c-mpx" height="240"></canvas></div>
+        <div class="card chartcard"><h4>Drawdown from session high <span class="lg"><i style="background:var(--bad)"></i>Drawdown</span>
+          <span class="lg"><i style="background:var(--warn)"></i>Breaker limit</span></h4><canvas id="c-mdd" height="160"></canvas></div>
+      </div>
+      <div class="side">
+        <div class="card lat"><h4><i data-i="timer"></i>Latency, measured</h4>
+          <dl><dt>Exchange &rarr; server</dt><dd id="lt-feed">–</dd>
+          <dt>Risk calculation</dt><dd id="lt-calc">–</dd>
+          <dt>Server &rarr; browser</dt><dd id="lt-push">–</dd>
+          <dt class="tot">Trade &rarr; your screen</dt><dd class="tot" id="lt-e2e">–</dd></dl>
+          <p id="lt-note">Medians of recent updates.</p></div>
+        <div class="card alerts"><h4><i data-i="bell"></i>Alerts<span class="count" id="m-count">0</span></h4>
+          <ul class="feed" id="m-feed"><li class="info" data-idle><span class="ai"><i data-i="info"></i></span><div><b>Not connected</b><span>Pick a symbol and press Connect.</span></div></li></ul></div>
+      </div>
+    </div>
   </section>
 
   <section class="page" id="p-analyze">
@@ -235,7 +310,7 @@ td.num,th.num{text-align:right}
         <div class="f"><label for="f-luck">Luck test</label><select id="f-luck">
           <option value="1000">1,000 shuffles (about 1 s)</option><option value="200">200 shuffles (fast)</option><option value="0">Off</option></select></div>
         <div class="runbar"><button class="btn primary" id="run" type="button"><i data-i="play"></i>Run analysis</button>
-          <a class="btn" id="tolive" href="#/live" title="Replay these settings live"><i data-i="pulse"></i></a></div>
+          <a class="btn" id="tolive" href="#/replay" title="Replay these settings live"><i data-i="pulse"></i></a></div>
         <div class="msg" id="amsg" role="status"></div>
       </form>
       <div class="card result" id="result"><div class="placeholder"><i data-i="sliders"></i>
@@ -244,7 +319,7 @@ td.num,th.num{text-align:right}
     </div>
   </section>
 
-  <section class="page" id="p-live">
+  <section class="page" id="p-replay">
     <div class="card lv-bar">
       <select id="l-sym" aria-label="Stock"></select>
       <span class="chip" id="l-cfg"></span>
@@ -303,14 +378,15 @@ const store={get(k,d){try{return JSON.parse(localStorage.getItem('rl.'+k))??d}ca
 
 /* ---------------- router ---------------- */
 const PAGES={overview:['Overview','Risk snapshot of every stock you have downloaded.'],
+ market:['Live market','Real prices as they happen, with live risk feedback from your rules.'],
  analyze:['Analyze','Test a strategy with and without risk rules.'],
- live:['Live monitor','Replays history through the engine day by day, like a risk desk screen.'],
+ replay:['Replay','Replays history through the engine day by day, like a risk desk screen.'],
  history:['History','Every analysis saved on this server.']};
 function route(){const p=(location.hash.match(/#\/(\w+)/)||[])[1]||'overview';const k=PAGES[p]?p:'overview';
  document.querySelectorAll('.page').forEach(e=>e.classList.toggle('on',e.id==='p-'+k));
  document.querySelectorAll('.nav a').forEach(a=>{const on=a.dataset.p===k;a.classList.toggle('on',on);on?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')});
  $('ptitle').textContent=PAGES[k][0];$('psub').textContent=PAGES[k][1];
- if(k==='history')loadHistory(); if(k==='live')liveCfgChip(); if(k==='overview')loadOverview();}
+ if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='overview')loadOverview();}
 window.addEventListener('hashchange',route);
 
 /* ---------------- health ---------------- */
@@ -336,7 +412,7 @@ async function loadOverview(){
    <div><span>1-year volatility</span><b>${pct(c.vol_1y)}</b></div><div><span>1-day VaR 95%</span><b>${loss(c.var_95,2)}</b></div>
    <div><span>Worst fall ever</span><b>${loss(c.max_drawdown)}</b></div><div><span>Since</span><b>${esc(c.first.slice(0,4))}</b></div></div>
    <div class="tk-a"><a class="btn" href="#/analyze" data-sym="${esc(c.symbol)}">${svg('sliders')}Analyze</a>
-   <a class="btn" href="#/live" data-sym="${esc(c.symbol)}">${svg('pulse')}Live replay</a></div></article>`).join('');
+   <a class="btn" href="#/replay" data-sym="${esc(c.symbol)}">${svg('pulse')}Replay</a></div></article>`).join('');
   $('cards').querySelectorAll('a[data-sym]').forEach(a=>a.addEventListener('click',()=>{setSym(a.dataset.sym)}));
  }catch(e){$('cards').innerHTML=`<div class="card empty">Could not load: ${esc(e.message)}</div>`}}
 
@@ -370,7 +446,7 @@ $('run').addEventListener('click',async()=>{readForm();const b=$('run');b.disabl
   health();
  }catch(e){$('amsg').className='msg err';$('amsg').textContent=e.message}finally{b.disabled=false}});
 
-/* ---------------- live monitor ---------------- */
+/* ---------------- replay ---------------- */
 const L={es:null,playing:false,t:0,days:0,data:[],trips:0,alerts:0,ended:false,flags:{}};
 function liveCfgChip(){const s=F.strat==='sma_cross'?`Trend ${F.fast}/${F.slow}`:F.strat==='momentum'?`Momentum ${F.look}d`:'Buy & hold';
  const r=[F.volOn?`vol target ${F.vol}%`:null,F.ddOn?`breaker ${F.dd}%`:null,F.cap<100?`cap ${F.cap}%`:null].filter(Boolean).join(', ')||'no risk rules';
@@ -437,6 +513,104 @@ $('l-play').addEventListener('click',()=>{if(L.playing){stop();setPlaying(false)
 $('l-restart').addEventListener('click',()=>{reset();start(0)});
 $('l-speed').addEventListener('change',()=>{if(L.playing)start(L.t+1)});
 $('l-sym').addEventListener('change',()=>{setSym($('l-sym').value);reset();setPlaying(false);$('l-date').textContent='Ready'});
+
+/* ---------------- live market ---------------- */
+const MS=store.get('market',{sym:'BTC-USD',src:'auto'});
+const M={es:null,on:false,bars:[],risk:null,alerts:0,push:false,sim:false,src:'',poll:0,lost:false,lastPx:null,trades:0,feed:null,
+ lat:{calc:[],push:[],e2e:[]},ticks:[]};
+const BRK={armed:['calm','check','Breaker armed'],warning:['elevated','alert','Near the breaker'],tripped:['halted','alert','Breaker would fire']};
+function fmtPx(p){if(p==null)return'–';return'$'+(p>=1?p.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):p.toPrecision(4))}
+function fms(v,d=0){if(v==null||!isFinite(v))return'–';if(v<1&&d===0)return'<1 ms';if(v>=10000)return(v/1000).toFixed(1)+' s';return v.toFixed(d)+' ms'}
+const med=a=>{if(!a.length)return null;const s=[...a].sort((x,y)=>x-y);return s[s.length>>1]};
+function keep(a,v,n=40){a.push(v);if(a.length>n)a.shift()}
+function mCfgChip(){$('m-cfg').innerHTML=`Vol target ${F.vol}% · breaker ${F.dd}% · <a href="#/analyze">change</a>`}
+function mAlert(level,icon,title,text){M.alerts++;$('m-count').textContent=M.alerts;
+ const li=document.createElement('li');li.className=level;
+ const tm=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+ li.innerHTML=`<span class="ai">${svg(icon)}</span><div><b>${esc(title)}</b><span>${esc(text)} · ${tm}</span></div>`;
+ const feed=$('m-feed');if(feed.firstElementChild&&feed.firstElementChild.dataset.idle!==undefined)feed.innerHTML='';feed.prepend(li);while(feed.children.length>100)feed.lastChild.remove()}
+function mLive(state,label){const el=$('m-live');el.className='live'+(state?' '+state:'');el.querySelector('span').textContent=label}
+function mStop(){if(M.es){M.es.close();M.es=null}M.on=false;$('m-go').innerHTML=svg('play')+'Connect';mLive('','Offline')}
+function mConnect(){mStop();const sym=($('m-sym').value.trim()||'BTC-USD').toUpperCase();$('m-sym').value=sym;
+ MS.sym=sym;MS.src=$('m-src').value;store.set('market',MS);mCfgChip();
+ Object.assign(M,{bars:[],risk:null,lost:false,lastPx:null,trades:0,feed:null,lat:{calc:[],push:[],e2e:[]},ticks:[]});
+ $('m-symbig').textContent=sym;$('m-px').textContent='–';$('m-chg').textContent='';$('m-brk').style.display='none';schedM();
+ const es=new EventSource(`/api/market?symbol=${encodeURIComponent(sym)}&source=${MS.src}&vol=${F.vol/100}&dd=${F.dd/100}`);
+ M.es=es;M.on=true;$('m-go').innerHTML=svg('pause')+'Disconnect';mLive('wait','Connecting…');
+ es.addEventListener('snap',e=>{const m=JSON.parse(e.data);Object.assign(M,{bars:m.bars,push:m.push,sim:m.simulated,src:m.source,poll:m.poll_seconds,lost:false});
+  mLive('on','LIVE');
+  $('m-srcline').innerHTML=`<span class="tag${m.simulated?' sim':m.push?'':' delay'}">${m.simulated?'SIMULATED':m.push?'REAL-TIME':'DELAYED'}</span> ${esc(m.source)} · `+
+   (m.push?'every trade is pushed the moment it happens':`checked every ${m.poll_seconds} s`)+` · risk rules: vol target ${F.vol}%, breaker ${F.dd}%`;
+  mAlert('info','radio',`Connected: ${sym}`,`Loaded ${m.bars.length} one-minute bars${m.push?'; streaming every trade':`; checking every ${m.poll_seconds} s`}`);
+  mLat(m.lat);mRender(m.risk)});
+ es.addEventListener('tick',e=>{const m=JSON.parse(e.data);for(const b of m.bars)mUpsert(b);keep(M.ticks,performance.now(),400);
+  if($('m-live').classList.contains('stale'))mLive('on','LIVE');
+  mLat(m.lat);mRender(m.risk);for(const [lv,t,x] of m.alerts)mAlert(lv,lv==='crit'?'alert':lv==='ok'?'check':'wave',t,x)});
+ es.addEventListener('status',e=>{const s=JSON.parse(e.data);if(s.text==='heartbeat')return;
+  if(s.text.startsWith('No new prices'))mLive('stale','NO NEW PRICES');
+  mAlert(s.level,s.level==='ok'?'check':s.level==='info'?'info':'alert',s.level==='crit'?'Feed problem':s.level==='ok'?'Feed restored':'Feed notice',s.text);
+  if(s.fatal)mStop()});
+ es.onerror=()=>{if(M.es&&!M.lost){M.lost=true;mLive('wait','Reconnecting…');mAlert('crit','alert','Connection lost','Retrying automatically. Is the RiskLens server still running?')}}}
+function mUpsert(b){const a=M.bars;let i=a.length-1;while(i>=0&&a[i][0]>b[0])i--;if(i>=0&&a[i][0]===b[0])a[i]=b;else a.splice(i+1,0,b);if(a.length>1440)a.shift()}
+function mLat(l){if(!l)return;const now=Date.now();M.feed=l.feed_ms??null;M.trades=l.trades||0;keep(M.lat.calc,l.compute_ms);
+ keep(M.lat.push,Math.max(0,now-l.sent_ms));if(l.last_trade_ms!=null)keep(M.lat.e2e,Math.max(0,now-l.last_trade_ms))}
+function mRender(r){if(!r)return;M.risk=r;const px=$('m-px');px.textContent=fmtPx(r.price);
+ if(M.lastPx!=null&&r.price!==M.lastPx){px.classList.remove('up','dn');void px.offsetWidth;px.classList.add(r.price>M.lastPx?'up':'dn')}M.lastPx=r.price;
+ const c=$('m-chg');c.className='mchg '+(r.change>0?'pos':r.change<0?'neg':'');c.textContent=`${r.change>0?'+':''}${pct(r.change,2)} this session`;
+ const b=BRK[r.breaker],p=$('m-brk');p.style.display='';p.className='pill '+b[0];p.innerHTML=svg(b[1])+b[2];
+ const warm=n=>`Warming up: needs ${n} minutes of data`;
+ $('m-x').textContent=r.exposure==null?'–':pct(r.exposure,0);$('m-x2').innerHTML=r.exposure==null?warm(10):`Target ${pct(r.vol_target,0)} ÷ current vol <b>${pct(r.vol,0)}</b>`;
+ $('m-dd').textContent=loss(r.drawdown,2);$('m-dd2').innerHTML=`Breaker fires at <b>${pct(r.dd_limit,0)}</b> · high ${fmtPx(r.high)}`;
+ $('m-vol').textContent=r.vol==null?'–':pct(r.vol,0);
+ $('m-vol2').innerHTML=r.vol==null?warm(10):'Annualized · '+(r.vol>2*r.vol_target?'<b style="color:var(--warn)">over 2× your target</b>':r.vol>r.vol_target?'above your target':'within your target');
+ $('m-var').textContent=r.var==null?'–':loss(r.var,3);$('m-var2').textContent=r.var==null?warm(20):'Worst 5% of minutes lose at least this';
+ $('m-rng').textContent=`${fmtPx(r.low)} – ${fmtPx(r.high)}`;$('m-rng2').textContent=`${r.bars.toLocaleString()} one-minute bars`;
+ schedM()}
+function mTick(){if(!M.on||!M.src)return;const now=performance.now(),n=M.ticks.filter(t=>now-t<10000).length;
+ $('m-act').textContent=M.push?`${(n/10).toFixed(1)}/s`:`${M.poll} s`;
+ $('m-act2').textContent=M.push?`updates/s · ${M.trades.toLocaleString()} trades received`:'between checks of a polled feed';
+ $('lt-feed').textContent=M.push?fms(M.feed==null?null:Math.max(0,M.feed)):M.sim?'n/a (simulated)':'≈ 1 min (delayed)';
+ $('lt-calc').textContent=fms(med(M.lat.calc),2);$('lt-push').textContent=fms(med(M.lat.push));
+ $('lt-e2e').textContent=M.push?fms(med(M.lat.e2e)):M.sim?'n/a':'≈ 1 min+';
+ $('lt-note').textContent=M.push?'Medians of recent updates. Exchange timestamps are compared with your PC clock, so a few ms of clock error is normal. Bursts of trades are batched to at most 10 updates per second.'
+  :M.sim?'Simulated prices: only the risk calculation and push times are real.':'Yahoo’s free data is about a minute behind and is checked every 20 s. Pick a crypto pair for Coinbase’s real-time feed.'}
+setInterval(mTick,1000);
+let rafM=0;function schedM(){if(!rafM)rafM=requestAnimationFrame(()=>{rafM=0;mdraw()})}
+function niceRange(lo,hi,parts=4){if(!isFinite(lo)||!isFinite(hi)){lo=0;hi=1}if(hi===lo){const d=Math.abs(hi)*0.001||1;lo-=d;hi+=d}
+ const raw=(hi-lo)/parts,mag=Math.pow(10,Math.floor(Math.log10(raw))),step=[1,2,2.5,5,10].map(m=>m*mag).find(x=>x>=raw);
+ return{lo:Math.floor(lo/step)*step,hi:Math.ceil(hi/step)*step,step}}
+function mplot(cv,series,o){const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=+cv.getAttribute('height');if(!w)return;
+ cv.width=w*dpr;cv.height=h*dpr;cv.style.height=h+'px';const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
+ g.font='12px "IBM Plex Sans",system-ui,sans-serif';g.fillStyle=css('--ink3');
+ const n=M.bars.length;if(!n){g.textAlign='center';g.fillText(M.on?'Waiting for prices…':'Not connected',w/2,h/2);return}
+ let lo=Infinity,hi=-Infinity;for(const s of series)for(const v of s.v){if(v<lo)lo=v;if(v>hi)hi=v}
+ for(const v of o.include||[]){if(v<lo)lo=v;if(v>hi)hi=v}
+ const r=niceRange(lo,hi),pl=o.pl||64,pr=10,pt=8,pb=22,pw=w-pl-pr,ph=h-pt-pb;
+ const Y=v=>pt+ph*(1-(v-r.lo)/(r.hi-r.lo)),X=i=>pl+pw*i/Math.max(1,n-1);
+ g.strokeStyle=css('--grid');g.lineWidth=1;
+ for(let v=r.lo;v<=r.hi+r.step*1e-6;v+=r.step){const y=Y(v);g.beginPath();g.moveTo(pl,y);g.lineTo(w-pr,y);g.stroke();g.textAlign='right';g.fillText(o.fmt(v,r.step),pl-8,y+4)}
+ g.textAlign='center';const every=Math.max(1,Math.ceil(n/Math.max(2,Math.floor(pw/90))));
+ for(let i=0;i<n;i+=every){const d=new Date(M.bars[i][0]);if(!isNaN(d))g.fillText(d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),X(i),h-6)}
+ for(const s of series){g.beginPath();s.v.forEach((v,i)=>{const x=X(i),y=Y(v);i?g.lineTo(x,y):g.moveTo(x,y)});
+  if(s.fill){g.lineTo(X(n-1),Y(0));g.lineTo(X(0),Y(0));g.closePath();g.globalAlpha=.14;g.fillStyle=s.color;g.fill();g.globalAlpha=1;
+   g.beginPath();s.v.forEach((v,i)=>{const x=X(i),y=Y(v);i?g.lineTo(x,y):g.moveTo(x,y)})}
+  g.setLineDash(s.dash||[]);g.strokeStyle=s.color;g.lineWidth=s.width||2;g.lineJoin='round';g.stroke();g.setLineDash([])}
+ if(o.hline!=null){const y=Y(o.hline);g.setLineDash([6,4]);g.strokeStyle=css('--warn');g.lineWidth=1.5;g.beginPath();g.moveTo(pl,y);g.lineTo(w-pr,y);g.stroke();g.setLineDash([]);
+  g.fillStyle=css('--warn');g.textAlign='left';g.fillText('breaker',pl+6,y-5)}
+ const lx=X(n-1),ly=Y(series[0].v[n-1]);g.fillStyle=series[0].color;g.beginPath();g.arc(lx,ly,3.5,0,7);g.fill()}
+function mdraw(){const closes=M.bars.map(b=>b[1]);let hi=-Infinity;const high=M.bars.map(b=>hi=Math.max(hi,b[2],b[1]));
+ const dec=s=>s>=1?0:s>=0.1?1:s>=0.01?2:4;
+ mplot($('c-mpx'),[{v:closes,color:css('--accent')},{v:high,color:css('--base'),dash:[5,4],width:1.5}],
+  {pl:78,fmt:(v,s)=>'$'+v.toLocaleString(undefined,{minimumFractionDigits:dec(s),maximumFractionDigits:dec(s)})});
+ const dd=M.bars.map((b,i)=>-(1-b[1]/high[i]));const lim=M.risk?-M.risk.dd_limit:null;
+ mplot($('c-mdd'),[{v:dd,color:css('--bad'),fill:true}],{pl:78,include:[0,...(lim!=null&&Math.min(...dd,0)<lim*0.5?[lim]:[])],
+  hline:lim!=null&&Math.min(...dd,0)<lim*0.5?lim:null,fmt:(v,s)=>Math.abs(v)<1e-12?'0%':(v*100).toFixed(s>=0.01?0:s>=0.001?1:2).replace('-','−')+'%'})}
+window.addEventListener('resize',schedM);
+$('m-sym').value=MS.sym;$('m-src').value=MS.src;$('m-symbig').textContent=MS.sym;
+$('m-go').addEventListener('click',()=>{M.on?mStop():mConnect()});
+$('m-sym').addEventListener('keydown',e=>{if(e.key==='Enter')mConnect()});
+document.querySelectorAll('#m-quick button').forEach(b=>b.addEventListener('click',()=>{$('m-sym').value=b.dataset.s;mConnect()}));
+$('m-src').addEventListener('change',()=>{MS.src=$('m-src').value;store.set('market',MS);if(M.on)mConnect()});
 
 /* ---------------- history ---------------- */
 async function loadHistory(){try{const rows=await api('/api/history');

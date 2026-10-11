@@ -1,0 +1,51 @@
+{
+  "env": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "logical_cpus": 2,
+    "affinity": [
+      1
+    ],
+    "os": "Linux 6.18.44-fc-v114",
+    "python": "3.13.16",
+    "server_cpu": 0,
+    "client_cpu": 1,
+    "transport": "HTTP/1.0 over loopback"
+  },
+  "workload": "10-year dataset; cold = 20 distinct configs each computed (1,000 luck shuffles); hot = repeated identical config served from the result store",
+  "cold_run_ms": {
+    "p50": 913.8,
+    "p90": 1090.23,
+    "p99": 1148.23,
+    "max": 1148.23,
+    "n": 20
+  },
+  "cold_server_compute_ms": {
+    "p50": 912.62,
+    "p90": 1088.88,
+    "p99": 1146.78,
+    "max": 1146.78,
+    "n": 20
+  },
+  "cache_hit_1_client_ms": {
+    "p50": 1.98,
+    "p90": 2.34,
+    "p99": 3.63,
+    "max": 5.01,
+    "n": 500
+  },
+  "cache_hit_8_clients_ms": {
+    "p50": 16.17,
+    "p90": 22.84,
+    "p99": 33.04,
+    "max": 39.82,
+    "n": 2000
+  },
+  "cache_hit_8_clients_req_per_s": 455,
+  "server_stats": {
+    "ok": true,
+    "engine_version": "52a8abf1a8d20942",
+    "runs_computed": 20,
+    "cache_hits": 2500
+  },
+  "server_peak_rss_mb": 28.0
+}

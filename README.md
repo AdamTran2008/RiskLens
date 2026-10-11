@@ -15,6 +15,13 @@ or could a coin have done as well?) and **stress tests** (how it did in real
 crises such as the 2008 crash, the COVID crash and the 2022 bear market,
 whenever they fall inside the data).
 
+And it works **live**: the **Live market** screen streams real prices as they
+happen (Coinbase's real-time feed for crypto, trade by trade, 24/7; Yahoo
+Finance for stocks, delayed) and gives live feedback from the same risk
+rules: how much the volatility target lets you hold right now, how close the
+drawdown breaker is to firing, 60-minute volatility and 1-minute VaR, with
+alerts, plus a **measured latency breakdown** on screen.
+
 The HTML report is organized into sections: summary with a plain-English
 verdict, drawdown ("underwater") chart with the 5 worst drawdowns, stress
 tests, growth, how much was invested each day, all metrics with a "what it
@@ -34,8 +41,9 @@ We do not claim to predict the market. The strategies are deliberately simple
 (trend-following moving averages, momentum, buy-and-hold). The product is the
 *measurement*: an honest, verifiable picture of risk.
 
-Pure Python standard library at runtime (no third-party packages). `pytest` +
-`hypothesis` for tests; `yfinance` only to download real price data.
+The engine, server and app are pure Python standard library. `pytest` +
+`hypothesis` for tests; `yfinance` to download real price data;
+`websocket-client` only for the optional Coinbase live feed.
 
 ---
 
@@ -47,7 +55,8 @@ Start the server and open **http://127.0.0.1:8765/** in a browser:
 |---|---|
 | **Overview** | A watchlist card for every downloaded stock: price, 1-year sparkline, current drawdown, 1-year volatility, 1-day VaR, and a status light (Calm / Elevated / Stressed). |
 | **Analyze** | Pick a stock, a strategy and the risk rules with sliders and switches, then run. The full risk report (summary, drawdowns, stress tests, metrics, luck test, rule log) appears in the page. |
-| **Live monitor** | Replays history through the engine **one trading day at a time** and streams it to the browser (Server-Sent Events): account value, drawdown, share invested, rolling 20-day volatility and 1-day VaR, with and without rules, plus an alert feed (circuit breaker fired, trading resumed, volatility spike, drawdown thresholds). Play, pause, speed, loop. |
+| **Live market** | Real prices as they happen. Type a symbol (or click BTC, ETH, SOL, SPY, AAPL) and press Connect. Crypto streams **every trade** from Coinbase's public WebSocket (no account or key); stocks come from Yahoo Finance (about a minute delayed, checked every 20 s); a clearly labeled simulated feed works offline. On every update: price, how much your volatility target lets you hold right now, drawdown from the session high vs. your breaker, 60-minute volatility, 1-minute VaR 95%, session range, alerts when a threshold is crossed, and **latency measured live**: exchange → server, risk calculation, server → browser, trade → your screen. |
+| **Replay** | Replays history through the engine **one trading day at a time** and streams it to the browser (Server-Sent Events): account value, drawdown, share invested, rolling 20-day volatility and 1-day VaR, with and without rules, plus an alert feed (circuit breaker fired, trading resumed, volatility spike, drawdown thresholds). Play, pause, speed, loop. |
 | **History** | Every saved analysis, reopenable. |
 
 ## 1. Quick start
@@ -57,9 +66,14 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 62 tests, ~15 s
+python3 -m pytest -q         # 82 tests, ~20 s
 ./scripts/mutation_check.sh  # plants 11 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~50 s)
+```
+
+**Live crypto prices** for the Live market screen (needs internet):
+```bash
+pip install websocket-client
 ```
 
 **Real market data** (recommended for the demo; needs internet once):
@@ -103,6 +117,18 @@ python3 -m risklens.client run AAPL --strategy buy_and_hold --no-risk
    scripts/fetch_data.py ── yfinance (once) ──▶ data/AAPL.csv + SHA-256 in manifest
 ```
 
+The live market path (a third component talking to the outside world):
+```
+ Coinbase Exchange               RiskLens server                         browser
+ ws-feed (every trade) ──WSS──▶  reader thread: trades → 1-min bars
+ REST 1-min candles ───HTTPS──▶  backfill + refill gaps after a drop
+                                 stream loop: wakes on each trade,       ──SSE──▶ Live market page
+                                 recompute risk snapshot (~0.1 ms),               KPIs, charts, alerts,
+                                 alerts on threshold crossings,                   latency panel
+                                 stamp latency, push (Nagle off)
+ Yahoo Finance (stocks) ─poll 20 s─▶ same stream loop
+```
+
 | Component | Responsibility |
 |---|---|
 | `data.py` | Strict CSV loader (rejects unsorted/duplicate dates, bad prices, NaN), SHA-256 fingerprints, seeded synthetic data |
@@ -111,8 +137,9 @@ python3 -m risklens.client run AAPL --strategy buy_and_hold --no-risk
 | `metrics.py` | Every metric with one written definition; the luck test |
 | `runner.py` | Strict config validation, canonical form, content-addressed run IDs |
 | `server.py` | HTTP/JSON service owning the data snapshots and the immutable result store |
-| `live.py` | Live monitor: steps the engine day by day through an observe-only hook and emits snapshots with rolling risk metrics |
-| `webapp.py` | The single-page web app served at `/` (Overview, Analyze, Live monitor, History) |
+| `market.py` | Live market: Coinbase WebSocket / Yahoo / simulated feeds, live risk snapshot, alert crossings, latency stamps |
+| `live.py` | Replay: steps the engine day by day through an observe-only hook and emits snapshots with rolling risk metrics |
+| `webapp.py` | The single-page web app served at `/` (Overview, Live market, Analyze, Replay, History) |
 | `client.py`, `report.py` | CLI and self-contained HTML report with charts |
 
 **Why a server and a client (two components):** on a real quant team many
@@ -147,6 +174,7 @@ local runs, and nobody can quietly re-run on edited data.
 | I5 | **Metrics mean what they say.** | Hand-calculated tests for drawdown (dates and recovery), nearest-rank VaR/CVaR, volatility and Sharpe, and the luck test (perfect foresight ⇒ p < 0.01; constant exposure ⇒ p = 1). |
 | I6 | **Bad input is rejected, not "fixed".** | Data loader tests (unsorted, duplicate, negative, NaN, high < close…), 11 rejected server configs, NaN in JSON, oversized bodies, path traversal, tampered data file. |
 | I7 | **The live replay tells the same story as the backtest.** Streamed account values equal the batch engine's to the cent, and resuming from any day gives exactly the same stream. | `test_stream_matches_batch_engine`, `test_resume_from_middle_is_identical`. |
+| I8 | **The live feed never invents or drops prices silently.** Trades build exact 1-minute bars (open = first, high/low = extremes, close = last, volume = sum); other products are ignored; a dropped connection is announced and the missed minutes are refilled from the exchange's own candles; a bad symbol stops with a clear message instead of retrying forever; the socket is closed when the browser leaves. Live risk numbers use the same definitions as the backtest. | `tests/test_market.py` (20 tests) against a fake socket speaking Coinbase's message format: bar building, reconnect and gap fill, stock symbols refused, end-to-end push stream, hand-calculated volatility, nearest-rank VaR, breaker states and once-per-crossing alerts. |
 
 **Do the tests have teeth?** `scripts/mutation_check.sh` plants 11 realistic
 bugs (strategy sees tomorrow's bar, fills at the close instead of the next
@@ -164,7 +192,7 @@ strengthened.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **62 tests pass** (`python3 -m pytest -q`, ~15 s; full output in
+Results: **82 tests pass** (`python3 -m pytest -q`, ~20 s; full output in
 `tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)
@@ -193,6 +221,14 @@ core; server on CPU 0, clients on CPU 1.
 | Server: cached result, 1 client | p50 **2.0 ms**, p99 3.6 ms |
 | Server: cached result, 8 concurrent clients | 455 req/s, p50 16 ms, p99 33 ms |
 | Server: new run (computed) | p50 914 ms (dominated by the luck test) |
+| Live market: trade arrives → risk update reaches the browser's socket (server pipeline, loopback) | p50 **0.88 ms**, p99 1.98 ms |
+| Live market: risk snapshot per update | 0.04 ms (300 bars) to 0.18 ms (a full day of 1,440 bars) |
+
+**Live latency, end to end.** The server adds about 1 ms. What dominates is
+the internet between Coinbase and your laptop (typically tens of ms), which
+the app measures and shows live, alongside the rest of the breakdown.
+Yahoo's free stock data is about a minute delayed, so for stocks the honest
+answer is "a minute", and the app says so.
 
 **Bottleneck:** the simulation itself is cheap. **97% of a run is the luck
 test** (1,000 shuffles in pure Python, linear in trials: 100 → 0.10 s,
@@ -220,6 +256,13 @@ the p-value is clearly decided.
   (multiple-comparisons); there is no correction yet.
 * **Server:** no authentication (binds to localhost), the result store has no
   size limit, and every cache hit re-reads its JSON file from disk.
+* **Live market:** real-time only for crypto (Coinbase). Stocks use Yahoo's
+  free, delayed data, and US markets are closed nights and weekends. The
+  session window for crypto is the last 5 hours of candles plus live trades.
+  Exchange → server latency compares Coinbase's timestamps with your PC
+  clock, so it is only as accurate as that clock (usually within a few ms).
+  Each open browser tab holds its own connection to Coinbase. Live feedback
+  is advisory: no orders are placed.
 
 ## 6. Next steps
 1. NumPy luck test (the measured bottleneck), plus a block-bootstrap version
@@ -238,10 +281,15 @@ report, tests, mutation script, benchmarks, demo.
 
 **Used, not built:**
 * Python standard library (`http.server`, `json`, `hashlib`, `csv`, `random`…).
-* `pytest` and `hypothesis` (tests only); `yfinance` (one-time data download only).
+* `pytest` and `hypothesis` (tests only); `yfinance` (data download, and the
+  delayed stock feed in Live market); `websocket-client` (the Coinbase live feed).
 * **Data:** Yahoo Finance daily prices via `yfinance`, read-only and subject to
   Yahoo's terms. Downloaded files are git-ignored and not redistributed.
   `SYNTH` is synthetic data from a fixed seed, clearly labeled as not real.
+  **Live crypto prices:** Coinbase Exchange's public market-data WebSocket and
+  public 1-minute candles (no account, no API key), displayed live, not
+  stored or redistributed, subject to Coinbase's terms. We did not use
+  TradingView: it has no public data API, and scraping it would break its terms.
 * **AI assistance:** the code and docs were developed with help from an AI
   coding assistant (Claude), and reviewed, run and tested by the team.
 * **Simulation only:** no real orders, no brokerage connection, no real money,
@@ -250,7 +298,9 @@ report, tests, mutation script, benchmarks, demo.
 ## Repository layout
 ```
 risklens/   data.py strategies.py engine.py metrics.py runner.py server.py client.py report.py
-tests/      test_engine.py test_properties.py test_metrics_data.py test_server.py helpers.py
+            webapp.py (the app) live.py (replay) market.py (live market feeds + live risk)
+tests/      test_engine.py test_properties.py test_metrics_data.py test_server.py
+            test_live.py test_market.py helpers.py
 bench/      bench.py results/*.json
 scripts/    demo.sh fetch_data.py mutation_check.sh
 data/       SYNTH.csv manifest.json   (+ your fetched AAPL.csv, SPY.csv, git-ignored)
