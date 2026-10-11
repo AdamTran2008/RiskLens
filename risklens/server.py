@@ -32,7 +32,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import report, runner
+from . import live, report, runner, webapp
 from .data import load_csv, load_manifest, sha256_file
 
 MAX_BODY = 64 * 1024
@@ -83,6 +83,54 @@ class App:
             json.dump(result, f, separators=(",", ":"))
         os.replace(tmp, self._path(rid))      # atomic: readers never see half a file
 
+    # --------------------------------------------------------- overview
+    def overview(self):
+        """Risk snapshot of every dataset, from a plain buy-and-hold run."""
+        cards = []
+        for sym in sorted(self.datasets):
+            r, _ = self.submit({"symbol": sym, "strategy": {"name": "buy_and_hold"},
+                                "luck_test": {"trials": 0}})
+            s = r["series"]
+            close = s["close"]
+            n = len(close)
+            y = min(252, n - 1)
+            rets = [close[i] / close[i - 1] - 1 for i in range(n - y, n)]
+            m = sum(rets) / len(rets)
+            vol = (sum((x - m) ** 2 for x in rets) / max(1, len(rets) - 1)) ** 0.5 * 252 ** 0.5
+            step = max(1, y // 60)
+            cur_dd = s["drawdown"][-1]
+            cards.append({
+                "symbol": sym, "source": self.datasets[sym].get("source", ""),
+                "first": s["dates"][0], "last": s["dates"][-1], "price": close[-1] / 100,
+                "ret_1y": close[-1] / close[n - 1 - y] - 1, "vol_1y": vol,
+                "drawdown_now": cur_dd, "max_drawdown": r["summary"]["max_drawdown"],
+                "var_95": r["summary"]["var_95"], "cagr": r["summary"]["cagr"],
+                "status": "stressed" if cur_dd >= 0.15 else "elevated" if cur_dd >= 0.05 else "calm",
+                "spark": [close[i] / 100 for i in range(n - 1 - y, n, step)],
+            })
+        return cards
+
+    def history(self, limit=60):
+        files = sorted((f for f in os.listdir(self.results_dir) if f.endswith(".json")),
+                       key=lambda f: os.path.getmtime(os.path.join(self.results_dir, f)),
+                       reverse=True)[:limit]
+        out = []
+        for f in files:
+            r = self.load(f[:-5])
+            if not r:
+                continue
+            c = r["config"]
+            if c["strategy"]["name"] == "buy_and_hold" and not c["luck_test"]["trials"] \
+                    and not (c["risk"]["vol_target"] or c["risk"]["max_drawdown"]):
+                continue                     # internal overview snapshot, not a user analysis
+            out.append({"run_id": r["run_id"], "symbol": c["symbol"], "strategy": c["strategy"],
+                        "risk": c["risk"], "start": r["summary"]["start"], "end": r["summary"]["end"],
+                        "cagr": r["summary"]["cagr"], "max_drawdown": r["summary"]["max_drawdown"],
+                        "sharpe": r["summary"]["sharpe"], "volatility": r["summary"]["volatility"],
+                        "saved": time.strftime("%Y-%m-%d %H:%M", time.localtime(
+                            os.path.getmtime(os.path.join(self.results_dir, f))))})
+        return out
+
     # -------------------------------------------------------------- run
     def submit(self, raw_cfg: dict):
         cfg = runner.normalize(raw_cfg)
@@ -129,8 +177,43 @@ def make_handler(app: App, quiet: bool = True):
         def _err(self, code, msg):
             self._send(code, {"error": msg})
 
+        def _live(self, q):
+            try:
+                raw = json.loads(q.get("cfg", ["{}"])[0])
+                cfg = runner.normalize(raw)
+                ds = app.datasets.get(cfg["symbol"])
+                if ds is None:
+                    raise runner.ConfigError(f"no dataset for {cfg['symbol']}")
+                speed = min(2000.0, max(1.0, float(q.get("speed", ["40"])[0])))
+                start = max(0, int(q.get("from", ["0"])[0]))
+            except (ValueError, json.JSONDecodeError) as e:
+                return self._err(400, str(e))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+            def emit(kind, payload):
+                try:
+                    self.wfile.write(f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionError, OSError):
+                    raise live.ClientGone()
+            try:
+                live.stream(cfg, ds["path"], emit, start=start, speed=speed)
+            except live.ClientGone:
+                pass
+
         def do_GET(self):
             u = urlparse(self.path)
+            if u.path in ("/", "/app"):
+                return self._send(200, webapp.page(app.version), "text/html")
+            if u.path == "/api/overview":
+                return self._send(200, app.overview())
+            if u.path == "/api/history":
+                return self._send(200, app.history())
+            if u.path == "/api/live":
+                return self._live(parse_qs(u.query))
             if u.path == "/health":
                 return self._send(200, {"ok": True, "engine_version": app.version, **app.stats})
             if u.path == "/datasets":
@@ -144,7 +227,8 @@ def make_handler(app: App, quiet: bool = True):
                 runs = [app.load(i) for i in ids if i][:4]
                 if not runs or any(r is None for r in runs):
                     return self._err(404, "unknown run id")
-                return self._send(200, report.render(runs), "text/html")
+                embed = parse_qs(u.query).get("embed", ["0"])[0] == "1"
+                return self._send(200, report.render(runs, embed=embed), "text/html")
             return self._err(404, "not found")
 
         def do_POST(self):
@@ -204,6 +288,7 @@ def main(argv=None):
     names = ", ".join(f"{s}({e['rows']})" for s, e in app.datasets.items()) or "none"
     print(f"RiskLens server on http://{a.host}:{a.port}  engine={app.version}  "
           f"datasets={names}", flush=True)
+    print(f"Open the app in your browser: http://{a.host}:{a.port}/", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

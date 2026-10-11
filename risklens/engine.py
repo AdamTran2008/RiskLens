@@ -91,9 +91,14 @@ def _realized_vol(hist_bars, n):
 
 def run(bars: list[Bar], strategy: Strategy, initial_cash: int = 10_000_000,
         costs: Costs = Costs(), risk: RiskConfig = RiskConfig(),
-        check: bool = True) -> Result:
+        check: bool = True, on_day=None) -> Result:
     """Run one backtest. ``initial_cash`` is in cents ($100,000 default).
-    With ``check=True`` every accounting invariant is verified every day."""
+    With ``check=True`` every accounting invariant is verified every day.
+
+    ``on_day(t, bar, result, new_events)``, if given, is called at the end of
+    every simulated day, after that day's books are verified. The live
+    monitor uses it to stream the simulation as it happens. It only observes:
+    nothing it returns can change the run."""
     if not 0 < risk.max_exposure <= 1:
         raise ValueError("max_exposure must be in (0, 1] (no leverage)")
     res = Result(initial_cash=initial_cash)
@@ -112,6 +117,7 @@ def run(bars: list[Bar], strategy: Strategy, initial_cash: int = 10_000_000,
         return math.floor(notional_cents * fee_rate + 0.5)
 
     for t, bar in enumerate(bars):
+        n_events = len(res.risk_events)
         # ---------------------------------------------------------- 1. OPEN
         if pending:
             if pending > 0:
@@ -215,6 +221,9 @@ def run(bars: list[Bar], strategy: Strategy, initial_cash: int = 10_000_000,
                 raise InvariantError(f"{bar.date}: target above exposure cap")
             if halted and pending > 0:
                 raise InvariantError(f"{bar.date}: buy order while halted")
+        if on_day is not None:
+            res.fees_paid = fees
+            on_day(t, bar, res, res.risk_events[n_events:])
 
     res.fees_paid = fees
     return res

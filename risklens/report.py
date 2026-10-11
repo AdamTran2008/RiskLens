@@ -454,7 +454,7 @@ def events_block(runs) -> str:
 
 
 # ----------------------------------------------------------------- render
-def render(runs: list[dict]) -> str:
+def render(runs: list[dict], embed: bool = False) -> str:
     c0 = runs[0]["config"]
     s0 = runs[0]["summary"]
     sym = esc(c0["symbol"])
@@ -646,6 +646,10 @@ main{{padding:32px 36px 64px;max-width:1120px;width:100%}}
 border:1px solid var(--rule);border-radius:12px;min-width:150px}}
 .pg:hover{{border-color:var(--accent);color:var(--accent)}} .pg.next{{text-align:right;margin-left:auto}}
 .pgk{{font-size:12px;font-weight:400;color:var(--ink3)}}
+.embed{{display:block}} .embed .side{{position:sticky;top:0;height:auto;flex-direction:row;align-items:center;padding:8px 12px;
+border-right:0;border-bottom:1px solid var(--rule);z-index:5}}
+.embed .brand,.embed .side-foot{{display:none}} .embed nav{{flex-direction:row;overflow-x:auto;gap:2px}}
+.embed nav a{{padding:8px 12px;font-size:14px}} .embed main{{padding:20px 20px 40px;max-width:none}}
 @media print{{.side,.pager{{display:none}} .app{{display:block}} .js .card{{display:block}}}}
 .card{{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:30px 32px;margin:0 0 22px;scroll-margin-top:90px}}
 .card-h{{display:flex;gap:16px;align-items:flex-start;margin-bottom:18px}}
@@ -724,7 +728,7 @@ main{{padding:18px 12px 48px}}}}
 @media (max-width:560px){{.card{{padding:20px 16px}} .verdict{{font-size:19px}} .tiles{{grid-template-columns:1fr}}
 .pg{{min-width:0}}}}
 </style><script>document.documentElement.classList.add('js')</script></head><body>
-<div class="app">
+<div class="app{" embed" if embed else ""}">
 <aside class="side">
 <div class="brand">{icon("shield")}<div>RiskLens<small>{sym} risk report</small></div></div>
 <nav aria-label="Report sections">{nav}</nav>

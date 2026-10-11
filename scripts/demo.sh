@@ -33,4 +33,4 @@ $C compare "$SYMBOL" --strategy sma_cross --fast 50 --slow 200 --vol-target 0.15
 
 echo; echo "### resubmit the same runs: served from the result store, same run IDs"
 $C compare "$SYMBOL" --strategy sma_cross --fast 50 --slow 200 --vol-target 0.15 --max-drawdown 0.15 | head -n 2
-echo; echo "Open the report file above in a browser to see the charts."
+echo; echo "Open the app in a browser: http://127.0.0.1:$PORT/ (the server stops when this script ends; run python -m risklens.server to keep it up)"

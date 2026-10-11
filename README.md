@@ -39,6 +39,17 @@ Pure Python standard library at runtime (no third-party packages). `pytest` +
 
 ---
 
+## The app
+
+Start the server and open **http://127.0.0.1:8765/** in a browser:
+
+| Screen | What it does |
+|---|---|
+| **Overview** | A watchlist card for every downloaded stock: price, 1-year sparkline, current drawdown, 1-year volatility, 1-day VaR, and a status light (Calm / Elevated / Stressed). |
+| **Analyze** | Pick a stock, a strategy and the risk rules with sliders and switches, then run. The full risk report (summary, drawdowns, stress tests, metrics, luck test, rule log) appears in the page. |
+| **Live monitor** | Replays history through the engine **one trading day at a time** and streams it to the browser (Server-Sent Events): account value, drawdown, share invested, rolling 20-day volatility and 1-day VaR, with and without rules, plus an alert feed (circuit breaker fired, trading resumed, volatility spike, drawdown thresholds). Play, pause, speed, loop. |
+| **History** | Every saved analysis, reopenable. |
+
 ## 1. Quick start
 
 ```bash
@@ -46,7 +57,7 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 56 tests, ~15 s
+python3 -m pytest -q         # 62 tests, ~15 s
 ./scripts/mutation_check.sh  # plants 11 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~50 s)
 ```
@@ -100,6 +111,8 @@ python3 -m risklens.client run AAPL --strategy buy_and_hold --no-risk
 | `metrics.py` | Every metric with one written definition; the luck test |
 | `runner.py` | Strict config validation, canonical form, content-addressed run IDs |
 | `server.py` | HTTP/JSON service owning the data snapshots and the immutable result store |
+| `live.py` | Live monitor: steps the engine day by day through an observe-only hook and emits snapshots with rolling risk metrics |
+| `webapp.py` | The single-page web app served at `/` (Overview, Analyze, Live monitor, History) |
 | `client.py`, `report.py` | CLI and self-contained HTML report with charts |
 
 **Why a server and a client (two components):** on a real quant team many
@@ -133,6 +146,7 @@ local runs, and nobody can quietly re-run on edited data.
 | I4 | **Deterministic and reproducible.** Same inputs ⇒ same result fingerprint and run ID; any change to config, data or engine code ⇒ new run ID. | `test_deterministic`, `test_execute_is_deterministic`, `test_run_id_covers_config_data_and_engine`, the server's `cached` path, and the benchmark's fingerprint check. |
 | I5 | **Metrics mean what they say.** | Hand-calculated tests for drawdown (dates and recovery), nearest-rank VaR/CVaR, volatility and Sharpe, and the luck test (perfect foresight ⇒ p < 0.01; constant exposure ⇒ p = 1). |
 | I6 | **Bad input is rejected, not "fixed".** | Data loader tests (unsorted, duplicate, negative, NaN, high < close…), 11 rejected server configs, NaN in JSON, oversized bodies, path traversal, tampered data file. |
+| I7 | **The live replay tells the same story as the backtest.** Streamed account values equal the batch engine's to the cent, and resuming from any day gives exactly the same stream. | `test_stream_matches_batch_engine`, `test_resume_from_middle_is_identical`. |
 
 **Do the tests have teeth?** `scripts/mutation_check.sh` plants 11 realistic
 bugs (strategy sees tomorrow's bar, fills at the close instead of the next
@@ -150,7 +164,7 @@ strengthened.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **56 tests pass** (`python3 -m pytest -q`, ~15 s; full output in
+Results: **62 tests pass** (`python3 -m pytest -q`, ~15 s; full output in
 `tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)

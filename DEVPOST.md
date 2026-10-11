@@ -26,6 +26,12 @@ shows the effect of risk controls, and can prove its own numbers.
 * Produces an HTML report with equity and drawdown charts, a metrics table,
   every risk-rule event, and the run's reproducibility manifest.
 
+* A web app with four screens: an **Overview** watchlist with a risk status
+  light per stock, an **Analyze** panel with sliders for the strategy and
+  risk rules, a **Live monitor** that replays history through the engine day
+  by day and streams risk metrics and alerts like a risk desk screen, and a
+  **History** of every saved run.
+
 ## How we built it
 Python standard library only. A run **server** owns the data snapshots and an
 immutable result store; a CLI **client** submits runs and fetches reports.
@@ -41,7 +47,9 @@ can never be silently mixed with old results.
   checked every day, and an independent ledger replay rebuilds cash and
   shares from the trade list over hundreds of random markets.
 * **Risk rules always hold**, and every run is reproducible.
-* **56 tests**. A mutation script plants 11 realistic bugs and the tests
+* **The live replay matches the backtest exactly:** streamed values equal the
+  batch engine's to the cent, and pausing and resuming changes nothing.
+* **62 tests**. A mutation script plants 11 realistic bugs and the tests
   catch **11/11**. The tests also caught two real bugs during the hackathon:
   a floating-point off-by-one in VaR, and a crash when a price rounds to $0.00.
 
