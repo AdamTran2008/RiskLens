@@ -4,8 +4,8 @@
 crashes, checked against live prices, and proven correct by its own tests.**
 
 [![tests](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml)
-&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 145 tests ·
-17/17 planted bugs caught
+&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 160 tests ·
+19/19 planted bugs caught
 
 **Live demo:** _add your hosted link here (see [Deploy](#deploy))_ ·
 Built at HackRU Fall 2026 for the Lucera Trading Systems Challenge
@@ -20,7 +20,8 @@ on historical data and on live prices:
 | Question | Feature |
 |---|---|
 | **How risky is it, and what do risk rules buy you?** | **Analyze** backtests the strategy twice, without and with risk rules (volatility target, exposure cap, drawdown circuit breaker), and compares max drawdown, volatility, VaR, Expected Shortfall and returns, plus stress tests through real crashes (2008, COVID, 2022). |
-| **Was the risk estimate right?** | **VaR check** backtests the risk model itself, the way banks must: each day's VaR is forecast from the past 250 days only, then the Kupiec test (right number of breaches?), Christoffersen test (do breaches cluster?) and the Basel traffic light grade it. |
+| **Which way of measuring risk is right?** | The **risk model check** forecasts tomorrow's VaR six ways, from the account's own P&L history (historical, EWMA) and from *today's position × the stock's risk* (historical, normal, EWMA/RiskMetrics, filtered historical simulation), each with data up to today only, then grades them all on the days the strategy held stock with the tests banks must run: Kupiec (right number of breaches?), Christoffersen (do breaches cluster?), conditional coverage, and the Basel traffic light. |
+| **What is really going on underneath?** | The **deep dive** answers the questions a risk manager asks next, each with a plain-English verdict: how fat the tails are compared with a bell curve; what each risk rule does on its own; whether the result is robust or lucky (25 nearby settings, and the period split in halves); where the returns come from (beta, alpha with its t-statistic, up/down capture); and what happens in calm vs turbulent markets. **Key findings** on the first page sum it up, each linked to its evidence. |
 | **Is the strategy's edge real, or luck?** | The **luck test** shuffles its timing 1,000 times and reports a p-value. |
 | **What do my rules say right now?** | **Live market** streams every trade from Coinbase's public WebSocket (Yahoo for stocks, delayed) and recomputes the allowed exposure, drawdown vs. the breaker, 60-minute volatility and 1-minute VaR on each update, with alerts and a measured latency breakdown. |
 | **Should this order be allowed?** | The **Risk gateway** runs every order through eight pre-trade checks (fresh price, kill switch, fat-finger size, order rate, cash, no shorting, position limit, exposure limit) on a paper account, with a **kill switch** that trips automatically on a drawdown and flattens the position. |
@@ -44,11 +45,13 @@ We do not claim to predict the market. The strategies are deliberately simple
 (trend-following moving averages, momentum, buy-and-hold). The product is the
 *measurement and control of risk*, done in a way you can verify.
 
-| Live market | VaR check |
+| Key findings | Risk model check |
 |---|---|
-| ![Live market](docs/img/live-market.png) | ![VaR check](docs/img/var-check.png) |
-| **Analyze** | **Replay** |
-| ![Analyze](docs/img/analyze.png) | ![Replay](docs/img/replay.png) |
+| ![Key findings](docs/img/findings.png) | ![Risk model check](docs/img/var-check.png) |
+| **What each rule does** | **Robust or lucky?** |
+| ![What each rule does](docs/img/rules.png) | ![Robust or lucky?](docs/img/robust.png) |
+| **Live market** | **Analyze any stock** |
+| ![Live market](docs/img/live-market.png) | ![Analyze](docs/img/analyze.png) |
 
 The engine, server and app are pure Python standard library. `pytest` +
 `hypothesis` for tests; `yfinance` to download real price data;
@@ -64,8 +67,8 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 145 tests, ~25 s
-./scripts/mutation_check.sh  # plants 17 bugs, shows the tests catch every one
+python3 -m pytest -q         # 160 tests, ~30 s
+./scripts/mutation_check.sh  # plants 19 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~90 s)
 python3 -m risklens.server   # then open http://127.0.0.1:8765/
 ```
@@ -198,17 +201,19 @@ local runs, and nobody can quietly re-run on edited data.
 | I6 | **Bad input is rejected, not "fixed".** | Data loader tests (unsorted, duplicate, negative, NaN, high < close…), 11 rejected server configs, NaN in JSON, oversized bodies, path traversal, tampered data file. |
 | I7 | **The live replay tells the same story as the backtest.** Streamed account values equal the batch engine's to the cent, and resuming from any day gives exactly the same stream. | `test_stream_matches_batch_engine`, `test_resume_from_middle_is_identical`. |
 | I8 | **The live feed never invents or drops prices silently.** Trades build exact 1-minute bars (open = first, high/low = extremes, close = last, volume = sum); other products are ignored; a dropped connection is announced and the missed minutes are refilled from the exchange's own candles; a bad symbol stops with a clear message instead of retrying forever; the socket is closed when the browser leaves. Live risk numbers use the same definitions as the backtest. | `tests/test_market.py` (20 tests) against a fake socket speaking Coinbase's message format: bar building, reconnect and gap fill, stock symbols refused, end-to-end push stream, hand-calculated volatility, nearest-rank VaR, breaker states and once-per-crossing alerts. |
-| I9 | **The risk estimate is checked honestly.** Each day's VaR forecast uses only the 250 days before it, never the day being forecast; the Kupiec, Christoffersen and Basel numbers match hand calculations. | `tests/test_var_check.py`: Hypothesis changes the forecast day and everything after it and proves earlier forecasts don't move; the rolling forecast equals a from-scratch VaR on every window; known chi-square critical values; a correct model passes, a model that lags rising volatility is flagged "underestimates risk", and bursty volatility is flagged as clustered even when the count looks fine. |
+| I9 | **The risk estimate is checked honestly.** Every one of the six VaR models forecasts day t using only data before day t; models are graded on the same days (the days the strategy held stock); the Kupiec, Christoffersen, conditional-coverage and Basel numbers match hand calculations. | `tests/test_var_check.py`: Hypothesis changes the forecast day and everything after it and proves no model's earlier forecasts move; the rolling historical forecast equals a from-scratch VaR on every window; the normal model matches its formula; the EWMA recursion is checked by hand; filtered historical simulation equals historical when volatility is constant; known chi-square critical values; a strategy that sits in cash half the time fails account-history VaR and passes position-based VaR. |
 | I10 | **No approved order ever breaks a limit.** An order fills only if all eight pre-trade checks pass; no buy while the kill switch is engaged or without a fresh price (fail closed); the paper account never goes negative or short, and `cash = start − bought + sold − fees` holds exactly (fractions, no rounding). | `test_no_approved_order_ever_breaks_a_limit`: Hypothesis runs 250 random sequences of orders, price moves, volatility changes, limit changes, kill/re-arm and time jumps, and checks every limit and the reconciliation after each step. Plus one test per check, the boundary case where fees tip an order over the exposure limit, manual and automatic kill switch, and per-browser account isolation. |
+| I11 | **The deep dive is right where the truth is known.** | `tests/test_analysis.py`: normal data shows no fat tails and a mixture does; a strategy built as 0.5 × stock + 1 bp a day gives beta 0.5, alpha 1 bp a day and R² = 1; the attribution's "no rules" and "all rules" rows equal real runs; the robustness grid contains your setting and the halves cover the period; regimes split days in thirds using only past volatility; every report page renders for every strategy type, and older saved results still render. |
 
-**Do the tests have teeth?** `scripts/mutation_check.sh` plants 17 realistic
+**Do the tests have teeth?** `scripts/mutation_check.sh` plants 19 realistic
 bugs one at a time (strategy sees tomorrow's bar, fills at the close instead
 of the next open, fee not charged, leverage allowed, breaker ignored, cap
 ignored, vol targeting ignored, peak never updated, VaR off by one, luck-test
 tie handling, VaR forecast peeks at the day it forecasts, Kupiec p-value from
 the wrong distribution, gateway ignores the kill switch, gateway ignores the
-position limit, exposure checked before fees, trading on a stale price, run
-ID ignoring the data hash). **Result: 17/17 caught**, and CI fails if any
+position limit, exposure checked before fees, trading on a stale price, EWMA
+volatility peeks at today's return, risk models graded on days spent in cash,
+run ID ignoring the data hash). **Result: 19/19 caught**, and CI fails if any
 survives. Twice a survivor exposed a weak test (the breaker test, and the
 exposure-limit boundary), and we strengthened it.
 
@@ -220,7 +225,7 @@ exposure-limit boundary), and we strengthened it.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **145 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
+Results: **160 tests pass** (`python3 -m pytest -q`, ~30 s; full output in
 `tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)
@@ -230,12 +235,27 @@ Results: **145 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
   and days to recover.
 * **VaR 95% (1-day, historical):** the k-th worst day, k = ⌈5% × n⌉.
   **CVaR / Expected Shortfall:** the average of those k worst days.
-* **VaR check (backtesting the risk model):** for each day t, forecast the
-  1-day VaR from days t−250…t−1 only; an exception is a loss bigger than the
-  forecast. **Kupiec** tests whether the exception rate fits 5% (or 1%);
-  **Christoffersen** tests whether exceptions cluster; the **Basel traffic
-  light** grades 99% VaR by exceptions in the last 250 days (green 0–4,
-  yellow 5–9, red 10+).
+* **Risk model check (backtesting the VaR models):** for each day t, forecast
+  the 1-day VaR from data before t only; a breach is a loss bigger than the
+  forecast. Six models: *account history* (historical, EWMA on the strategy's
+  own P&L) and *position × stock* (exposure known at the prior close, the
+  larger of tonight's holding and tomorrow's target, times the stock's VaR
+  from historical, normal, EWMA with λ = 0.94, or filtered historical
+  simulation: past shocks ÷ their EWMA volatility, rescaled to today's).
+  Graded on the days the strategy held stock: **Kupiec** tests whether the
+  breach rate fits 5% (or 1%); **Christoffersen** tests whether breaches
+  cluster; **conditional coverage** combines both (χ², 2 df); the **Basel
+  traffic light** grades 99% VaR by breaches in the last 250 test days
+  (green 0–4, yellow 5–9, red 10+). Best fit: passes both, highest combined p.
+* **Deep dive:** *tails*: skewness, kurtosis, and days beyond 2–5σ vs a
+  normal distribution with the same mean and volatility; *rule attribution*:
+  the same strategy with no rules, each rule alone, and all rules; *robustness*:
+  fast/slow at 0.5–1.5× your setting (trend) or 0.33–2× your look-back
+  (momentum), plus the two halves of the period; *return sources*: OLS of the
+  strategy's daily returns on the stock's (beta, annualized alpha with its
+  t-statistic, R²), up/down capture = average strategy return ÷ average stock
+  return on the stock's up (down) days; *regimes*: days split into thirds by
+  the stock's volatility over the previous 20 days.
 * **Luck test:** shuffle the strategy's daily exposure across days 1,000 times
   (keeps *how much* it invested, randomizes *when*); p-value = share of
   shuffles whose Sharpe ≥ the real one. Gross of costs, seeded.
@@ -244,21 +264,21 @@ Results: **145 tests pass** (`python3 -m pytest -q`, ~25 s; full output in
 
 ## 4. Performance (summary; full report in [PERFORMANCE.md](PERFORMANCE.md))
 
-2-vCPU Intel Xeon VM, Linux, CPython 3.13; engine pinned to one core;
-server on CPU 0, clients on CPU 1 (live and gateway rows: a 2.1 GHz VM).
+2-vCPU Intel Xeon @ 2.1 GHz VM, Linux, CPython 3.13; engine pinned to one
+core; server on CPU 0, clients on CPU 1. All rows measured in one session.
 
 | Measurement | Result |
 |---|---|
-| Engine speed (SMA + vol target + breaker, invariants checked daily) | **~180,000 bars/s**, flat from 10 to 1,000 years of data |
-| One 10-year backtest | load 10 ms · simulate **12 ms** · luck test 852 ms |
+| Engine speed (SMA + vol target + breaker, invariants checked daily) | **~200,000–290,000 bars/s**, from 10 to 1,000 years of data |
+| One 10-year analysis | load 8 ms · simulate **9 ms** · risk model check 114 ms · deep dive 283 ms · luck test 505 ms · total 0.92 s |
 | Memory | ~169 bytes per bar simulated |
-| Server: cached result, 1 client | p50 **2.0 ms**, p99 3.6 ms |
-| Server: cached result, 8 concurrent clients | 455 req/s, p50 16 ms, p99 33 ms |
-| Server: new run (computed) | p50 914 ms (dominated by the luck test) |
-| Live market: trade arrives → risk update reaches the browser's socket (server pipeline, loopback) | p50 **0.88 ms**, p99 2.1 ms |
-| Live market: risk snapshot per update | 0.05 ms (300 bars) to 0.18 ms (a full day of 1,440 bars) |
-| Risk gateway: all eight pre-trade checks + fill, in process | p50 **72 µs**, p99 127 µs (~14,600 orders/s) |
-| Risk gateway: order round trip over HTTP | p50 1.6 ms, p99 2.3 ms |
+| Server: cached result, 1 client | p50 **3.1 ms**, p99 5.6 ms |
+| Server: cached result, 8 concurrent clients | 329 req/s, p50 22 ms, p99 36 ms |
+| Server: new run (computed) | p50 1.01 s |
+| Live market: trade arrives → risk update reaches the browser's socket (server pipeline, loopback) | p50 **0.64 ms**, p99 1.7 ms |
+| Live market: risk snapshot per update | 0.05 ms (300 bars) to 0.2 ms (a full day of 1,440 bars) |
+| Risk gateway: all eight pre-trade checks + fill, in process | p50 **63 µs**, p99 159 µs (~14,400 orders/s) |
+| Risk gateway: order round trip over HTTP | p50 1.6 ms, p99 2.5 ms |
 
 **Live latency, end to end.** The server adds about 1 ms. What dominates is
 the internet between Coinbase and your laptop (typically tens of ms), which
@@ -266,10 +286,12 @@ the app measures and shows live, alongside the rest of the breakdown.
 Yahoo's free stock data is about a minute delayed, so for stocks the honest
 answer is "a minute", and the app says so.
 
-**Bottleneck:** the simulation itself is cheap. **97% of a run is the luck
-test** (1,000 shuffles in pure Python, linear in trials: 100 → 0.10 s,
-5,000 → 4.3 s). Next step: vectorize it with NumPy, or adaptively stop once
-the p-value is clearly decided.
+**Bottleneck:** the simulation itself is cheap (1% of a run). The analysis
+is the cost, by design: **55% of a run is the luck test** (1,000 shuffles in
+pure Python, linear in trials: 100 → 0.05 s, 5,000 → 2.7 s) and 31% the deep
+dive's 29 extra backtests. Next steps: vectorize the luck test with NumPy or
+stop it early once the p-value is clearly decided, and run the robustness
+grid's independent backtests in parallel processes.
 
 ---
 
@@ -293,10 +315,16 @@ the p-value is clearly decided.
 * **Server:** no authentication (binds to localhost by default; `--public`
   adds rate limits, not logins). Locally the result store has no size limit,
   and every cache hit re-reads its JSON file from disk.
-* **VaR check:** historical VaR with a fixed 250-day window, 1-day horizon;
-  the Basel light is applied to the strategy's own VaR, not a bank's
-  regulatory model. Short datasets (under 300 days) are reported as "not
-  enough data" rather than tested.
+* **Risk model check:** 1-day VaR only, fixed 250-day windows, λ = 0.94 for
+  EWMA (not fitted); breaches are judged on close-to-close returns, so a
+  day when the position changes at the open is sized by the larger of the two
+  exposures (conservative). The Basel light is applied to the strategy's own
+  VaR, not a bank's regulatory model. Short datasets (under 300 days, or
+  under 50 invested days) are reported as "not enough data".
+* **Deep dive:** regime cut-offs are thirds of the whole period's volatility
+  (an after-the-fact grouping for analysis, not a trading signal); the
+  robustness grid exists for trend and momentum strategies only; alpha comes
+  from a simple daily OLS regression with no correction for autocorrelation.
 * **Risk gateway:** a paper account in memory (lost on restart), market
   orders only, fills at the last live price plus fixed slippage (no order
   book, no partial fills). One account per browser; no login.
@@ -311,10 +339,8 @@ the p-value is clearly decided.
 ## 6. Next steps
 1. NumPy luck test (the measured bottleneck), plus a block-bootstrap version
    that respects volatility clustering.
-1. A VaR model that reacts faster to volatility (EWMA or GARCH), compared
-   against historical VaR with the same VaR check; the check already shows
-   historical VaR breaches cluster.
-2. Multi-asset portfolios with a portfolio-level VaR limit.
+2. Multi-asset portfolios: correlations, risk contributions per holding, and a
+   portfolio-level VaR graded by the same risk model check.
 3. Walk-forward testing: tune on one period, test on the next, automatically.
 4. In-memory cache of hot results in the server.
 
@@ -323,9 +349,9 @@ the p-value is clearly decided.
 ## 7. Disclosure: what we built vs. what we used
 
 **Built during HackRU (Oct 10–11, 2026):** all code in this repository:
-engine, risk rules, metrics, luck test, VaR check, data validation, server,
-client, report, web app, live market feeds, risk gateway, tests, mutation
-script, benchmarks, demo, deploy config.
+engine, risk rules, metrics, luck test, risk model check, deep-dive
+analytics, data validation, server, client, report, web app, live market
+feeds, risk gateway, tests, mutation script, benchmarks, demo, deploy config.
 
 **Used, not built:**
 * Python standard library (`http.server`, `json`, `hashlib`, `csv`, `random`…).
@@ -348,8 +374,10 @@ script, benchmarks, demo, deploy config.
 risklens/   data.py strategies.py engine.py metrics.py runner.py server.py client.py report.py
             webapp.py (the app) live.py (replay) market.py (live market feeds + live risk)
             gateway.py (pre-trade risk checks, kill switch, paper account)
+            analysis.py (deep dive) fetch.py (downloads any ticker)
 tests/      test_engine.py test_properties.py test_metrics_data.py test_server.py test_live.py
-            test_market.py test_var_check.py test_gateway.py test_public.py helpers.py
+            test_market.py test_var_check.py test_analysis.py test_gateway.py test_datasets.py
+            test_public.py helpers.py
 docs/img/   screenshots
 .github/    workflows/tests.yml (tests on 3.11-3.13 + mutation check)
 render.yaml Procfile Dockerfile requirements.txt   (deploy)

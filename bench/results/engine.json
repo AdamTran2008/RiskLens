@@ -1,6 +1,6 @@
 {
   "env": {
-    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
     "logical_cpus": 2,
     "affinity": [
       0
@@ -14,48 +14,48 @@
       "years": 10,
       "bars": 2520,
       "invariant_checks": true,
-      "seconds": 0.0139,
-      "bars_per_s": 181078,
+      "seconds": 0.0128,
+      "bars_per_s": 196258,
       "trades": 261
     },
     {
       "years": 10,
       "bars": 2520,
       "invariant_checks": false,
-      "seconds": 0.013,
-      "bars_per_s": 193282,
+      "seconds": 0.0118,
+      "bars_per_s": 213098,
       "trades": 261
     },
     {
       "years": 100,
       "bars": 25200,
       "invariant_checks": true,
-      "seconds": 0.1442,
-      "bars_per_s": 174701,
+      "seconds": 0.087,
+      "bars_per_s": 289525,
       "trades": 2227
     },
     {
       "years": 100,
       "bars": 25200,
       "invariant_checks": false,
-      "seconds": 0.1504,
-      "bars_per_s": 167590,
+      "seconds": 0.082,
+      "bars_per_s": 307400,
       "trades": 2227
     },
     {
       "years": 1000,
       "bars": 252000,
       "invariant_checks": true,
-      "seconds": 1.4209,
-      "bars_per_s": 177357,
+      "seconds": 1.008,
+      "bars_per_s": 249997,
       "trades": 22408
     },
     {
       "years": 1000,
       "bars": 252000,
       "invariant_checks": false,
-      "seconds": 1.3898,
-      "bars_per_s": 181326,
+      "seconds": 0.9711,
+      "bars_per_s": 259491,
       "trades": 22408
     }
   ],

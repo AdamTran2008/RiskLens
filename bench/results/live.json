@@ -3,39 +3,38 @@
     "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
     "logical_cpus": 2,
     "affinity": [
-      0,
-      1
+      0
     ],
     "os": "Linux 6.18.44-fc-v114",
     "python": "3.13.16"
   },
   "workload": "200 trades, one every 120 ms, BTC-USD session of 300 backfilled 1-minute bars; fake in-memory Coinbase socket; SSE client in the same process over loopback",
   "trade_to_browser_socket_ms": {
-    "p50": 0.88,
-    "p90": 1.08,
-    "p99": 2.08,
-    "max": 14.69,
+    "p50": 0.64,
+    "p90": 0.82,
+    "p99": 1.65,
+    "max": 2.52,
     "n": 200
   },
   "risk_snapshot_compute_ms_in_pipeline": {
     "p50": 0.13,
-    "p90": 0.18,
-    "p99": 0.26,
-    "max": 0.27,
+    "p90": 0.16,
+    "p99": 0.39,
+    "max": 1.08,
     "n": 200
   },
   "risk_snapshot_compute_ms_microbench": {
     "300_bars": {
       "p50": 0.05,
-      "p90": 0.05,
-      "p99": 0.07,
-      "max": 0.1
+      "p90": 0.06,
+      "p99": 0.08,
+      "max": 3.38
     },
     "1440_bars": {
-      "p50": 0.18,
-      "p90": 0.3,
-      "p99": 0.49,
-      "max": 3.93
+      "p50": 0.2,
+      "p90": 0.31,
+      "p99": 0.37,
+      "max": 0.82
     }
   },
   "not_included": "internet time from Coinbase to your machine (shown live in the app as 'Exchange -> server') and browser rendering"

@@ -143,9 +143,11 @@ def execute(cfg: dict, data_path: str, dataset_sha: str | None = None,
     # hold tonight, or what we will hold tomorrow if that is larger
     exposure = [max(res.position[i] * res.close[i] / res.equity[i], res.target[i])
                 if res.equity[i] > 0 else 0.0 for i in range(len(res.equity) - 1)]
+    t_rm = time.perf_counter()
     risk_models = {"95": metrics.compare_risk_models(pnl, asset, exposure, res.dates[1:], 0.95,
                                                      keep_series=True),
                    "99": metrics.compare_risk_models(pnl, asset, exposure, res.dates[1:], 0.99)}
+    t_rm = time.perf_counter() - t_rm
     t_deep = time.perf_counter()
     has_rules = bool(cfg["risk"]["vol_target"] or cfg["risk"]["max_drawdown"]
                      or cfg["risk"]["max_exposure"] < 1)
@@ -179,6 +181,7 @@ def execute(cfg: dict, data_path: str, dataset_sha: str | None = None,
                    "close": res.close, "target": res.target,
                    "drawdown": [round(x, 6) for x in metrics.drawdown_series(res.equity)]},
         "timing_ms": {"load": round(t_load * 1000, 2), "simulate": round(t_sim * 1000, 2),
+                      "risk_models": round(t_rm * 1000, 2),
                       "deep_dive": round(t_deep * 1000, 2),
                       "luck_test": round((time.perf_counter() - t2) * 1000, 2),
                       "total": round((time.perf_counter() - t0) * 1000, 2)},

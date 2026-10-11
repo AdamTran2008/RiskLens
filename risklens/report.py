@@ -1328,7 +1328,9 @@ tr.group th{{font-weight:600;color:var(--accent);padding-top:22px;font-size:14px
 .vfig{{display:none}} .vfig.on{{display:block}}
 .ngrp{{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);padding:14px 12px 4px}}
 .ngrp:first-child{{padding-top:2px}}
-.embed .ngrp{{display:none}}
+.embed .ngrp{{display:flex;align-items:center;padding:0 4px 0 12px;font-size:10px;white-space:nowrap;letter-spacing:.05em}}
+.embed .ngrp:first-child{{padding-left:2px}}
+.embed nav a{{padding:8px 8px}}
 .findings{{list-style:none;padding:0;margin:0;display:grid;gap:8px}}
 .findings a{{display:flex;gap:12px;align-items:flex-start;text-decoration:none;color:var(--ink);border:1px solid var(--rule);
 border-radius:12px;padding:12px 14px;font-size:15px}}

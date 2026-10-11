@@ -9,8 +9,8 @@ physically can't see the future, the money balances to the cent every day,
 and every result is reproducible from a hash. It even checks whether its
 own risk estimate was right, the way banks must. And it runs live: every order
 goes through eight pre-trade risk checks against real prices, with a kill
-switch. We proved it with 145 tests, and when we planted 17 bugs, the tests
-caught all 17."
+switch. We proved it with 160 tests, and when we planted 19 bugs, the tests
+caught all 19."
 
 ## Demo (3 minutes)
 1. Start the server (`python -m risklens.server`) and open **http://127.0.0.1:8765/**.
@@ -40,22 +40,25 @@ caught all 17."
    then Run. Press **→** to flip to the next stock and **←** to come back:
    "Saved results come back in about 20 milliseconds, because every run is
    stored under its fingerprint." Walk through Summary → Drawdowns → Stress tests (COVID crash) →
-   **VaR check**: "Was our risk number right? We forecast VaR each day using
-   only the past, then count the breaches: Kupiec says the count is right,
-   Christoffersen says they cluster in crashes, which is why we need the
-   volatility target."
+   **Key findings**, then **Risk model check**: "We forecast tomorrow's risk
+   six ways and grade every model with the tests banks must run. VaR from the
+   account's own history was beaten 125 times when 56 were expected; sizing
+   risk from today's position × the stock's risk passes." Then **What each
+   rule does**: "The volatility target did the work. The circuit breaker
+   alone actually made the worst fall deeper." Then **Robust or lucky?**:
+   "25 nearby settings, and both halves of the period."
 6. **Replay:** press Start on Fast. Talk while it runs: "This is the
    engine replaying 15 years one day at a time. Watch the teal line stay
    shallower in the drawdown chart. When the breaker fires, it shows up here
    in the alert feed." Pause during the COVID crash (early 2020) to show it.
 7. **History:** "Every run is saved and reproducible from its ID."
-8. If asked about correctness: `python -m pytest -q` (145 passed) and
-   `./scripts/mutation_check.sh` (17/17).
+8. If asked about correctness: `python -m pytest -q` (160 passed) and
+   `./scripts/mutation_check.sh` (19/19).
 
 ## Likely questions
 
 **"How low is your latency?"**
-"Our part is under a millisecond: 0.88 ms median from a trade arriving to the
+"Our part is under a millisecond: 0.64 ms median from a trade arriving to the
 update leaving for the browser, measured with `bench/bench.py live`. The
 screen shows the full chain live, including the internet hop from Coinbase.
 We don't poll: the socket reader wakes the risk loop the instant a trade
@@ -69,6 +72,20 @@ then check if the next day's loss was bigger. A 95% VaR should be beaten on
 about 5% of days (Kupiec test), and the breaches shouldn't bunch together
 (Christoffersen test). With risk rules our count passes, but breaches cluster
 in volatile periods, a known weakness of historical VaR."
+
+**"Your VaR said accurate before, now it fails. Which is it?"**
+"Our first check counted every day, including days in cash, where you can't
+lose money, so it looked accurate. Graded only on days the strategy held
+stock, VaR from the account's own history was beaten more than twice as
+often as it should be. We fixed the measurement, not the number: risk now
+comes from today's position × the stock's risk, which is how risk desks do
+it, and that passes."
+
+**"Is the strategy robust?"**
+"We re-ran it with 25 nearby settings and split the period in half. The
+trend strategy's result doesn't depend on the exact numbers and held up in
+both halves; the momentum strategy's Sharpe went from 0.9 to 0.0 between
+halves, so we'd call that luck of the period."
 
 **"What does the risk gateway check?"**
 Eight things, in order: valid order, a fresh live price (no price, no trade),
@@ -143,5 +160,5 @@ of the 2nd. That's exactly the kind of silent error that makes backtests lie."
 
 ## Numbers to know
 ~180,000 bars/s · 10-year run simulates in 12 ms · luck test 97% of time ·
-cached result 2 ms · live pipeline 0.88 ms p50 · pre-trade checks 72 µs p50 · 145 tests ·
-17/17 mutations caught · money in integer cents (backtest) and exact fractions (gateway).
+cached result 3 ms · full analysis 0.92 s · live pipeline 0.64 ms p50 · pre-trade checks 63 µs p50 ·
+160 tests · 19/19 mutations caught · money in integer cents (backtest) and exact fractions (gateway).

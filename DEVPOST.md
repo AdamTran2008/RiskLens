@@ -26,10 +26,22 @@ controls it before orders go out, and can prove its own numbers.
   **twice, without and with risk rules** (volatility targeting, exposure cap,
   drawdown circuit breaker), and compares max drawdown, volatility, Sharpe,
   Sortino, VaR, Expected Shortfall and stress tests through real crashes.
-* **VaR check:** backtests the risk model itself, the way banks must. Each
-  day's VaR is forecast from the previous 250 days only; then the Kupiec test
-  asks whether the number of breaches is right, the Christoffersen test asks
-  whether they cluster, and the Basel traffic light grades the 99% VaR.
+* **Risk model check:** six ways to forecast tomorrow's VaR, each using only
+  data up to today, graded by the tests banks must run (Kupiec: right number
+  of breaches? Christoffersen: do they cluster? Basel traffic light). The
+  headline finding: VaR built from the account's own P&L history, what most
+  backtesters report, was beaten 125 times when 56 were expected on the days
+  a trend strategy held stock, because its cash periods make it shrink. VaR
+  built from *today's position × the stock's risk*, the way a risk desk does
+  it, passes.
+* **Deep dive:** the questions a risk manager asks next, each answered with
+  numbers and a plain-English verdict: how fat the tails are (3-sigma losses
+  ~4× more often than a bell curve says); what each rule does alone (the
+  volatility target did the work; the circuit breaker alone made the worst
+  fall deeper); whether the result is robust or lucky (25 nearby settings and
+  the two halves of the period); where returns come from (beta, alpha with a
+  t-statistic, up/down capture); and calm vs turbulent markets. A **Key
+  findings** box opens every report.
 * **Luck test:** shuffles the strategy's timing 1,000 times and reports a
   p-value, so nobody mistakes luck for skill.
 * **Live market:** every trade from Coinbase's public WebSocket (24/7, no key;
@@ -78,19 +90,20 @@ capped live streams, a bounded store, and one paper account per browser.
   sequences of orders, price moves, limit changes and kill switch presses,
   and checks every limit after every step.
 * **The live replay matches the backtest to the cent.**
-* **145 tests**, run on Python 3.11–3.13 in CI. A mutation script plants **17
+* **160 tests**, run on Python 3.11–3.13 in CI. A mutation script plants **19
   realistic bugs** (look-ahead, ignored kill switch, stale prices, wrong
-  p-values…) and the tests catch **17/17**. The tests also caught real bugs
+  p-values…) and the tests catch **19/19**. The tests also caught real bugs
   during the hackathon: a floating-point off-by-one in VaR, and a crash when a
   price rounds to $0.00.
 
 ## Performance (2 vCPU VM)
-* Backtest engine: ~**180,000 bars/s** with all invariants checked; a 10-year
-  run simulates in **12 ms** (the luck test is 97% of run time, the measured
-  bottleneck).
-* Live: a trade reaches the browser's socket **0.88 ms** p50 after it arrives
+* Backtest engine: **~200,000+ bars/s** with all invariants checked; a 10-year
+  backtest simulates in **9 ms**. The full analysis, including the six-model
+  risk check, 29 extra backtests for the deep dive and a 1,000-shuffle luck
+  test, takes 0.92 s; the luck test is the measured bottleneck (55%).
+* Live: a trade reaches the browser's socket **0.64 ms** p50 after it arrives
   at our server. The rest is the internet, which the app measures live.
-* Risk gateway: all eight pre-trade checks in **72 µs** p50 (~14,600 orders/s);
+* Risk gateway: all eight pre-trade checks in **63 µs** p50 (~14,400 orders/s);
   1.6 ms round trip over HTTP.
 
 ## Challenges
@@ -103,14 +116,16 @@ fixed both.
 ## What we learned
 The backtest loop is the easy part. The hard part is being sure it's right:
 defining "no look-ahead" precisely enough to test, keeping money exact, and
-checking the risk estimate itself. Our own VaR check showed that historical
-VaR breaches cluster in volatile periods, which is exactly why the
-volatility target and kill switch exist.
+checking the risk estimate itself. Our first VaR check called the account's
+own historical VaR "accurate", because it counted days in cash, where you
+can't lose money. Graded only on days the strategy held stock, it was beaten
+more than twice as often as it should be. Fixing how we *measured* risk
+mattered more than any new feature.
 
 ## What's next
-A faster-reacting VaR model (EWMA or GARCH) graded by the same VaR check,
-multi-asset portfolios with a portfolio VaR limit, walk-forward testing, and
-a NumPy luck test.
+Multi-asset portfolios (correlations, risk contribution per holding, a
+portfolio VaR graded by the same check), walk-forward testing, and a NumPy
+luck test.
 
 ## Built with
 python, http.server, server-sent-events, websocket-client, coinbase-exchange-api,
