@@ -221,6 +221,7 @@ _ICON_PATHS = {
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
     "check": '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
     "alert": '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+    "target": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     "bulb": '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
 }
 
@@ -432,6 +433,106 @@ def luck_block(runs) -> str:
     return "".join(out) or '<p class="empty">The luck test was not run.</p>'
 
 
+def fmt_p(p):
+    return "< 0.001" if p < 0.001 else f"{p:.3f}" if p < 0.1 else f"{p:.2f}"
+
+
+VERDICT = {"accurate": (True, "Accurate"), "too optimistic": (False, "Underestimates risk"),
+           "too cautious": (False, "Overestimates risk")}
+
+
+def _var_chart(vc) -> str:
+    """Daily returns (bars), the VaR forecast made the day before (line), and
+    the days the loss beat the forecast (red dots)."""
+    se = vc["series"]
+    rets, var, dates = se["ret"], se["var"], se["dates"]
+    n, height = len(rets), 260
+    lo = min(min(rets), -max(var))
+    hi = max(rets)
+    ticks = _nice_ticks(lo, hi)
+    lo, hi = min(ticks[0], lo), max(ticks[-1], hi)
+    pw, ph = VW - PL - PR, height - PT - PB
+    X = lambda i: PL + pw * i / max(1, n - 1)
+    Y = lambda v: PT + ph * (1 - (v - lo) / (hi - lo or 1))
+    g = [f'<svg class="chart" viewBox="0 0 {VW} {height}" role="img" aria-label="Daily returns '
+         f'against the VaR forecast, with exceptions marked">']
+    for t in ticks:
+        y = Y(t)
+        g.append(f'<line class="grid{" zero" if t == 0 else ""}" x1="{PL}" x2="{VW - PR}" y1="{y:.1f}" '
+                 f'y2="{y:.1f}"/><text class="tick" x="{PL - 8}" y="{y + 4:.1f}" text-anchor="end">'
+                 f'{"0%" if abs(t) < 1e-12 else pct(t, 0 if abs(hi - lo) > 0.04 else 1)}</text>')
+    last, step = None, max(1, round((int(dates[-1][:4]) - int(dates[0][:4]) + 1) / 8))
+    for i, d in enumerate(dates):
+        if d[:4] != last:
+            if last is not None and int(d[:4]) % step == 0:
+                g.append(f'<text class="tick" x="{X(i):.1f}" y="{height - 6}" text-anchor="middle">{d[:4]}</text>')
+            last = d[:4]
+    y0 = Y(0)
+    g.append('<path class="vbar" d="' + "".join(f"M{X(i):.1f} {y0:.1f}V{Y(r):.1f}"
+                                                for i, r in enumerate(rets)) + '"/>')
+    step_i = max(1, n // 900)
+    pts = " ".join(f"{X(i):.1f},{Y(-var[i]):.1f}" for i in range(0, n, step_i))
+    g.append(f'<polyline class="line varl" points="{pts}"/>')
+    g.append("".join(f'<circle class="vx" cx="{X(i):.1f}" cy="{Y(r):.1f}" r="2.6"/>'
+                     for i, (r, v) in enumerate(zip(rets, var)) if -r > v))
+    g.append("</svg>")
+    return "".join(g)
+
+
+def var_block(runs) -> str:
+    rows, notes = [], []
+    shown = [(k, r) for k, r in enumerate(runs) if (r.get("var_check") or {}).get("95")]
+    if not shown:
+        return ('<p class="empty">Not enough history to check the risk estimate: it needs at least '
+                '300 trading days (250 to make the first forecast, then days to test it).</p>')
+    for k, r in shown:
+        for lv in ("95", "99"):
+            v = r["var_check"].get(lv)
+            if not v:
+                continue
+            good, word = VERDICT[v["verdict"]]
+            b = v.get("basel")
+            zone = (f'<span class="zone {b["zone"]}">{b["zone"].title()}</span>'
+                    f'<span class="muted small"> {b["last_250"]}/250</span>' if b else
+                    '<span class="muted">n/a</span>')
+            rows.append(
+                f'<tr><th><span class="sw s{k}bg"></span>{esc(short_label(r))}</th><td>{lv}%</td>'
+                f'<td class="num">{v["expected"]:.0f}</td><td class="num"><b>{v["exceptions"]}</b></td>'
+                f'<td class="num">{v["rate"]:.1%}</td><td class="num">{fmt_p(v["kupiec_p"])}</td>'
+                f'<td>{badge(good, word, word)}</td>'
+                f'<td>{"Yes" if v["clustered"] else "No"} <span class="muted small">p '
+                f'{fmt_p(v["christoffersen_p"]).replace("< ", "&lt; ") if v["christoffersen_p"] < 0.001 else "= " + fmt_p(v["christoffersen_p"])}'
+                f'</span></td><td>{zone}</td></tr>')
+    k, main = shown[-1]
+    v = main["var_check"]["95"]
+    good, word = VERDICT[v["verdict"]]
+    notes.append(
+        f'<p class="verdict small-v"><span class="sw s{k}bg"></span>{esc(short_label(main))}: the 95% VaR '
+        f'expected a bigger loss on about {v["expected"]:.0f} of {v["days"]:,} days. It happened on '
+        f'<b>{v["exceptions"]}</b> ({v["rate"]:.1%}). ' +
+        ("That is consistent with 5%, so the risk estimate was right on average"
+         if v["verdict"] == "accurate" else
+         "That is more than 5% would allow, so the model underestimated risk"
+         if v["verdict"] == "too optimistic" else
+         "That is fewer than 5% would allow, so the model overestimated risk") +
+        f' (Kupiec test p = {fmt_p(v["kupiec_p"])}).</p>')
+    if v["clustered"]:
+        notes.append(
+            '<p class="note">But the breaches came in <b>clusters</b> (Christoffersen test p '
+            f'{"&lt; 0.001" if v["christoffersen_p"] < 0.001 else "= " + fmt_p(v["christoffersen_p"])}): when markets suddenly turn wild, a VaR built from the past '
+            '250 days reacts too slowly, so several bad days slip past it in a row. That is a known '
+            'weakness of historical VaR, and the reason the volatility target and circuit breaker exist.</p>')
+    chart = _var_chart(v)
+    return (f'{"".join(notes)}<div class="legend"><span class="leg"><span class="sw vbarbg"></span>Daily '
+            f'return</span><span class="leg"><span class="sw s1bg"></span>95% VaR forecast (made the day '
+            f'before)</span><span class="leg"><span class="sw vxbg"></span>Loss beat the forecast</span>'
+            f'</div><div class="figure">{chart}</div>'
+            f'<h3 class="h3">Every check</h3><div class="scroll"><table class="vart"><thead><tr><th>Run</th>'
+            f'<th>VaR</th><th class="num">Expected breaches</th><th class="num">Actual</th>'
+            f'<th class="num">Rate</th><th class="num">Kupiec p</th><th>Verdict</th><th>Clustered?</th>'
+            f'<th>Basel light (99%)</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+
+
 def events_block(runs) -> str:
     rows = []
     names = {"DRAWDOWN_BREAKER": ("alert", "Circuit breaker fired"),
@@ -528,7 +629,7 @@ def render(runs: list[dict], embed: bool = False) -> str:
     nav_items = [("summary", "summary", "Summary"), ("drawdowns", "down", "Drawdowns"),
                  ("stress", "bolt", "Stress tests"), ("growth", "up", "Growth"),
                  ("invested", "pie", "Invested"), ("metrics", "table", "All metrics"),
-                 ("luck", "dice", "Luck test"), ("log", "bell", "Risk-rule log"),
+                 ("varcheck", "target", "VaR check"), ("luck", "dice", "Luck test"), ("log", "bell", "Risk-rule log"),
                  ("method", "lock", "Method")]
     nav = "".join(f'<a href="#{i}" data-view="{i}">{icon(ic, "nic")}<span>{t}</span></a>'
                   for i, ic, t in nav_items)
@@ -563,6 +664,15 @@ def render(runs: list[dict], embed: bool = False) -> str:
                 f"Daily data, 252 trading days a year. Fees {c0['costs']['fee_bps']:g} bp and "
                 f"slippage {c0['costs']['slippage_bps']:g} bp per trade. Bold marks the better value.",
                 metrics_table(runs)),
+        section("varcheck", "target", "VaR check: was the risk estimate right?",
+                "Each day we forecast VaR from the previous 250 days only, then count how often "
+                "the next day's loss was bigger.",
+                var_block(runs),
+                "A risk number is only useful if it is right. A correct 95% VaR is beaten on about "
+                "1 day in 20, and those days should not bunch together. Banks are required to run "
+                "this check: the Kupiec test asks whether the count is right, the Christoffersen test "
+                "whether breaches cluster, and the Basel traffic light grades 99% VaR on the last 250 "
+                "days (green 0–4 breaches, yellow 5–9, red 10 or more)."),
         section("luck", "dice", "Luck test: is the timing better than random?",
                 f"We shuffle which days the strategy was invested "
                 f"{(runs[0]['luck_test'] or {}).get('trials', 0):,} times and compare.",
@@ -709,6 +819,13 @@ tr.group th{{font-weight:600;color:var(--accent);padding-top:22px;font-size:14px
 .pbar .dot{{position:absolute;top:-5px;width:20px;height:20px;border-radius:50%;margin-left:-10px;border:3px solid var(--panel)}}
 .pscale{{display:flex;justify-content:space-between;font-size:12px;color:var(--ink3);margin-top:8px;position:relative}}
 .thrlab{{position:absolute;left:5%;transform:translateX(-50%)}} .pv{{color:var(--ink);font-weight:500}}
+.vbar{{stroke:var(--ink3);stroke-width:1;opacity:.45;fill:none}} .vbarbg{{background:var(--ink3)}}
+.varl{{stroke:var(--accent);stroke-width:1.6}} .vx{{fill:var(--bad)}} .vxbg{{background:var(--bad);border-radius:50%}}
+.small-v{{font-size:18px;max-width:none}}
+.zone{{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px}}
+.zone.green{{background:var(--goodbg);color:var(--good)}} .zone.yellow{{background:#fdf3e1;color:#b26a00}}
+.zone.red{{background:var(--badbg);color:var(--bad)}}
+.vart td,.vart th{{white-space:nowrap}}
 .timeline{{list-style:none;padding:0;margin:0}}
 .ev{{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--rule)}}
 .evi{{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--tipbg);color:var(--ink2)}}

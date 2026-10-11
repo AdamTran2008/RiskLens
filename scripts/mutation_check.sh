@@ -33,6 +33,8 @@ mutate "vol targeting ignored"                      engine.py  's/              
 mutate "peak equity never updated"                  engine.py  's/        if equity > peak:/        if False:/'
 mutate "VaR off by one"                             metrics.py 's/    var = -s\[k - 1\]/    var = -s[k]/'
 mutate "luck test counts ties wrong"                metrics.py 's/        if s >= actual - 1e-12:/        if s > actual + 1e-12:/'
+mutate "VaR forecast peeks at the day it forecasts" metrics.py 's/        out.append(-win\[k - 1\])/        out.append(-sorted(returns[t - window + 1:t + 1])[k - 1])/'
+mutate "Kupiec p-value from the wrong distribution" metrics.py 's/    return math.erfc(math.sqrt(max(x, 0.0) \/ 2))/    return math.exp(-max(x, 0.0) \/ 2)/'
 mutate "run id ignores the dataset hash"            runner.py  's/"data": dataset_sha,/"data": "",/'
 
 echo "$caught/$total mutations caught"

@@ -136,6 +136,9 @@ def execute(cfg: dict, data_path: str, dataset_sha: str | None = None,
                      risk=engine.RiskConfig(**cfg["risk"]))
     t_sim = time.perf_counter() - t1
     summ = metrics.summary(res.equity, res.dates, res.position, res.trades, res.fees_paid)
+    rets = metrics.daily_returns(res.equity)
+    var_check = {"95": metrics.var_backtest(rets, res.dates[1:], 0.95, keep_series=True),
+                 "99": metrics.var_backtest(rets, res.dates[1:], 0.99)}
     luck = None
     t2 = time.perf_counter()
     if cfg["luck_test"]["trials"]:
@@ -150,6 +153,7 @@ def execute(cfg: dict, data_path: str, dataset_sha: str | None = None,
                      "bars": len(bars), "result_fingerprint": res.fingerprint()},
         "summary": summ,
         "luck_test": luck,
+        "var_check": var_check,
         "risk_events": res.risk_events,
         "trades": res.trades,
         "series": {"dates": res.dates, "equity": res.equity, "position": res.position,

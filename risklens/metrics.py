@@ -6,6 +6,7 @@ risk-free rate (stated, not hidden).
 """
 from __future__ import annotations
 
+import bisect
 import math
 import random
 from operator import mul
@@ -81,6 +82,122 @@ def var_cvar(returns: list[float], level: float = 0.95) -> tuple[float, float]:
     var = -s[k - 1]
     cvar = -_mean(s[:k])
     return var, cvar
+
+
+# ------------------------------------------------- VaR accuracy check
+BASEL_GREEN_MAX, BASEL_YELLOW_MAX = 4, 9      # exceptions in 250 days at 99% VaR
+
+
+def chi2_1_sf(x: float) -> float:
+    """P(X > x) for a chi-square variable with 1 degree of freedom."""
+    return math.erfc(math.sqrt(max(x, 0.0) / 2))
+
+
+def _xlogy(c, q):
+    """c * log(q) with the convention 0 * log(0) = 0."""
+    return c * math.log(q) if c else 0.0
+
+
+def kupiec_pof(n: int, x: int, p: float) -> tuple[float, float]:
+    """Kupiec (1995) proportion-of-failures test. Under a correct model the
+    number of VaR exceptions x in n days is Binomial(n, p). Returns the
+    likelihood-ratio statistic and its chi-square(1) p-value; a small
+    p-value means the exception rate is not consistent with p."""
+    if n <= 0:
+        return 0.0, 1.0
+    q = x / n
+    lr = -2 * ((_xlogy(n - x, 1 - p) + _xlogy(x, p)) - (_xlogy(n - x, 1 - q) + _xlogy(x, q)))
+    lr = max(lr, 0.0)
+    return lr, chi2_1_sf(lr)
+
+
+def christoffersen_ind(hits: list[bool]) -> tuple[float, float]:
+    """Christoffersen (1998) independence test: are exceptions clustered?
+    Compares P(exception | exception yesterday) with P(exception | none
+    yesterday). A small p-value means exceptions bunch together."""
+    n = [[0, 0], [0, 0]]
+    for a, b in zip(hits, hits[1:]):
+        n[a][b] += 1
+    n00, n01, n10, n11 = n[0][0], n[0][1], n[1][0], n[1][1]
+    total = n00 + n01 + n10 + n11
+    if total == 0 or n01 + n11 == 0 or n00 + n10 == 0:
+        return 0.0, 1.0
+    pi = (n01 + n11) / total
+    pi0 = n01 / (n00 + n01) if n00 + n01 else 0.0
+    pi1 = n11 / (n10 + n11) if n10 + n11 else 0.0
+    l_indep = _xlogy(n00 + n10, 1 - pi) + _xlogy(n01 + n11, pi)
+    l_markov = _xlogy(n00, 1 - pi0) + _xlogy(n01, pi0) + _xlogy(n10, 1 - pi1) + _xlogy(n11, pi1)
+    lr = max(-2 * (l_indep - l_markov), 0.0)
+    return lr, chi2_1_sf(lr)
+
+
+def basel_zone(exceptions_250: int) -> str:
+    return ("green" if exceptions_250 <= BASEL_GREEN_MAX
+            else "yellow" if exceptions_250 <= BASEL_YELLOW_MAX else "red")
+
+
+def rolling_var(returns: list[float], level: float, window: int) -> list[float]:
+    """Forecast for day t (t >= window) = historical VaR of returns[t-window:t].
+    Uses only days strictly before t, so there is no look-ahead. Same
+    nearest-rank definition as var_cvar; the window is kept sorted."""
+    k = max(1, math.ceil(round((1 - level) * window, 9)))
+    win = sorted(returns[:window])
+    out = []
+    for t in range(window, len(returns)):
+        out.append(-win[k - 1])
+        win.pop(bisect.bisect_left(win, returns[t - window]))
+        bisect.insort(win, returns[t])
+    return out
+
+
+def var_backtest(returns: list[float], dates: list[str], level: float = 0.95,
+                 window: int = 250, keep_series: bool = False) -> dict | None:
+    """Was the VaR right? Each day, forecast VaR from the previous ``window``
+    days only, then check whether that day's loss was bigger (an exception).
+    A correct 95% VaR is exceeded on about 5% of days, independently.
+
+    ``dates[i]`` is the date of ``returns[i]``. Returns None if there are not
+    enough days to test (window + 50)."""
+    if len(returns) < window + 50:
+        return None
+    fc = rolling_var(returns, level, window)
+    test = returns[window:]
+    tdates = dates[window:]
+    hits = [-r > v for r, v in zip(test, fc)]
+    n, x = len(test), sum(hits)
+    p = 1 - level
+    k_lr, k_p = kupiec_pof(n, x, p)
+    c_lr, c_p = christoffersen_ind(hits)
+    rate = x / n
+    if k_p >= 0.05:
+        verdict = "accurate"
+    else:
+        verdict = "too optimistic" if rate > p else "too cautious"
+    out = {
+        "level": level, "window": window, "days": n, "expected": p * n, "exceptions": x,
+        "rate": rate, "kupiec_lr": k_lr, "kupiec_p": k_p,
+        "christoffersen_lr": c_lr, "christoffersen_p": c_p, "clustered": c_p < 0.05,
+        "verdict": verdict,
+        "exception_dates": [d for d, h in zip(tdates, hits) if h],
+    }
+    # Basel traffic light: exceptions in each 250-day window (defined for 99% VaR)
+    if n >= 250 and level >= 0.99:
+        c = sum(hits[:250])
+        counts = [c]
+        for i in range(250, n):
+            c += hits[i] - hits[i - 250]
+            counts.append(c)
+        zones = [basel_zone(v) for v in counts]
+        worst = max(range(len(counts)), key=lambda i: counts[i])
+        out["basel"] = {
+            "last_250": counts[-1], "zone": zones[-1],
+            "worst_250": counts[worst], "worst_end": tdates[worst + 249],
+            "share": {z: zones.count(z) / len(zones) for z in ("green", "yellow", "red")},
+        }
+    if keep_series:
+        out["series"] = {"dates": tdates, "ret": [round(r, 6) for r in test],
+                         "var": [round(v, 6) for v in fc]}
+    return out
 
 
 def summary(equity: list[int], dates: list[str], position: list[int],

@@ -10,7 +10,9 @@ RiskLens answers two questions about a trading strategy:
    *with* risk controls (volatility targeting, an exposure cap and a drawdown
    circuit breaker), side by side.
 
-It also runs a **luck test** (is the strategy's timing better than random,
+It also checks **whether its own risk estimate was right** (VaR
+backtesting, as banks must: Kupiec and Christoffersen tests and the Basel
+traffic light), runs a **luck test** (is the strategy's timing better than random,
 or could a coin have done as well?) and **stress tests** (how it did in real
 crises such as the 2008 crash, the COVID crash and the 2022 bear market,
 whenever they fall inside the data).
@@ -175,6 +177,7 @@ local runs, and nobody can quietly re-run on edited data.
 | I6 | **Bad input is rejected, not "fixed".** | Data loader tests (unsorted, duplicate, negative, NaN, high < close…), 11 rejected server configs, NaN in JSON, oversized bodies, path traversal, tampered data file. |
 | I7 | **The live replay tells the same story as the backtest.** Streamed account values equal the batch engine's to the cent, and resuming from any day gives exactly the same stream. | `test_stream_matches_batch_engine`, `test_resume_from_middle_is_identical`. |
 | I8 | **The live feed never invents or drops prices silently.** Trades build exact 1-minute bars (open = first, high/low = extremes, close = last, volume = sum); other products are ignored; a dropped connection is announced and the missed minutes are refilled from the exchange's own candles; a bad symbol stops with a clear message instead of retrying forever; the socket is closed when the browser leaves. Live risk numbers use the same definitions as the backtest. | `tests/test_market.py` (20 tests) against a fake socket speaking Coinbase's message format: bar building, reconnect and gap fill, stock symbols refused, end-to-end push stream, hand-calculated volatility, nearest-rank VaR, breaker states and once-per-crossing alerts. |
+| I9 | **The risk estimate is checked honestly.** Each day's VaR forecast uses only the 250 days before it, never the day being forecast; the Kupiec, Christoffersen and Basel numbers match hand calculations. | `tests/test_var_check.py`: Hypothesis changes the forecast day and everything after it and proves earlier forecasts don't move; the rolling forecast equals a from-scratch VaR on every window; known chi-square critical values; a correct model passes, a model that lags rising volatility is flagged "underestimates risk", and bursty volatility is flagged as clustered even when the count looks fine. |
 
 **Do the tests have teeth?** `scripts/mutation_check.sh` plants 11 realistic
 bugs (strategy sees tomorrow's bar, fills at the close instead of the next
@@ -202,6 +205,12 @@ Results: **82 tests pass** (`python3 -m pytest -q`, ~20 s; full output in
   and days to recover.
 * **VaR 95% (1-day, historical):** the k-th worst day, k = ⌈5% × n⌉.
   **CVaR / Expected Shortfall:** the average of those k worst days.
+* **VaR check (backtesting the risk model):** for each day t, forecast the
+  1-day VaR from days t−250…t−1 only; an exception is a loss bigger than the
+  forecast. **Kupiec** tests whether the exception rate fits 5% (or 1%);
+  **Christoffersen** tests whether exceptions cluster; the **Basel traffic
+  light** grades 99% VaR by exceptions in the last 250 days (green 0–4,
+  yellow 5–9, red 10+).
 * **Luck test:** shuffle the strategy's daily exposure across days 1,000 times
   (keeps *how much* it invested, randomizes *when*); p-value = share of
   shuffles whose Sharpe ≥ the real one. Gross of costs, seeded.
