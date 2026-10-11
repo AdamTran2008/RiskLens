@@ -79,6 +79,10 @@ and refills the missed minutes from Coinbase's own candles.
 
 It also runs as a public website (`--public`): per-visitor rate limits,
 capped live streams, a bounded store, and one paper account per browser.
+Locally it starts with one double-click (`Start RiskLens.bat` on Windows,
+`start.command` on Mac): it installs what's missing, downloads a few starter
+stocks, and opens the browser, and it never lets an older copy that is still
+running answer in its place.
 
 ## Correctness evidence
 * **No look-ahead:** Hypothesis replaces every price after day k with
@@ -90,7 +94,7 @@ capped live streams, a bounded store, and one paper account per browser.
   sequences of orders, price moves, limit changes and kill switch presses,
   and checks every limit after every step.
 * **The live replay matches the backtest to the cent.**
-* **160 tests**, run on Python 3.11–3.13 in CI. A mutation script plants **19
+* **169 tests**, run on Python 3.10–3.14 in CI. A mutation script plants **19
   realistic bugs** (look-ahead, ignored kill switch, stale prices, wrong
   p-values…) and the tests catch **19/19**. The tests also caught real bugs
   during the hackathon: a floating-point off-by-one in VaR, and a crash when a

@@ -207,6 +207,8 @@ def verdict(runs) -> str:
 # ------------------------------------------------------------------ icons
 # Simple stroke icons (24x24 grid), drawn inline so the report works offline.
 _ICON_PATHS = {
+    "external": '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
+    "back": '<path d="M19 12H5"/><path d="M11 18l-6-6 6-6"/>',
     "summary": '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 5-6"/>',
     "shield": '<path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/>',
     "wave": '<path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/>',
@@ -1012,7 +1014,10 @@ def events_block(runs) -> str:
 
 
 # ----------------------------------------------------------------- render
-def render(runs: list[dict], embed: bool = False) -> str:
+def render(runs: list[dict], embed: bool = False, app_link: str | None = None) -> str:
+    """The report page. ``embed`` is the compact version shown inside the
+    app's Analyze page; ``app_link`` (set by the server) adds a link from
+    the full page back to the app."""
     c0 = runs[0]["config"]
     s0 = runs[0]["summary"]
     sym = esc(c0["symbol"])
@@ -1092,15 +1097,41 @@ def render(runs: list[dict], embed: bool = False) -> str:
               ("Evidence", [("metrics", "table", "All metrics"), ("luck", "dice", "Luck test"),
                             ("log", "bell", "Risk-rule log"), ("method", "lock", "Method")])]
     nav_items = [it for _, items in groups for it in items]
-    nav = "".join(f'<div class="ngrp">{g}</div>' + "".join(
-        f'<a href="#{i}" data-view="{i}" title="{t}">{icon(ic, "nic")}<span>{t}</span></a>' for i, ic, t in items)
-        for g, items in groups)
+    if embed:
+        # inside the app: three group tabs, then only that group's pages, and
+        # a button that opens the same report full screen in a new tab
+        short = {"varcheck": "Risk models", "rules": "Each rule alone", "robust": "Robust or lucky?",
+                 "regimes": "Regimes", "log": "Rule log"}
+        full = "/report?runs=" + ",".join(r["run_id"] for r in runs)
+        nav = ('<div class="tl1" role="tablist">' + "".join(
+            f'<button type="button" class="g" data-g="{gi}" data-first="{items[0][0]}">{g}'
+            f'<span class="n">{len(items)}</span></button>' for gi, (g, items) in enumerate(groups))
+            + f'<a class="full" id="full" href="{full}" target="_blank" rel="noopener" '
+              f'title="Open this report full screen in a new tab">{icon("external")}'
+              f'<span>Open full report</span></a>'
+            + '</div><div class="tl2">' + "".join(
+            f'<a href="#{i}" data-view="{i}" data-g="{gi}">{short.get(i, t)}</a>'
+            for gi, (_, items) in enumerate(groups) for i, _, t in items) + '</div>')
+    else:
+        nav = "".join(f'<div class="ngrp">{g}</div>' + "".join(
+            f'<a href="#{i}" data-view="{i}" title="{t}">{icon(ic, "nic")}<span>{t}</span></a>' for i, ic, t in items)
+            for g, items in groups)
 
+    # Summary: headline and tiles, with the key findings beside them on wide
+    # screens (one column on narrow ones)
+    findings = findings_block(runs)
+    summary_body = f'<p class="verdict">{esc(verdict(runs))}</p>{tiles}'
+    if findings:
+        tip = (f'<div class="explain">{icon("bulb", "ei")}<p>{summary_explain}</p></div>'
+               if summary_explain else "")
+        summary_body = (f'<div class="sumgrid"><div class="sumL">{summary_body}{tip}</div>'
+                        f'<div class="sumR">{findings}</div></div>')
+        summary_explain = None
     secs = [
         section("summary", "summary", "Summary",
                 f"{esc(strategy_name(runs[0]))} strategy on {sym}, {period}, starting with "
                 f"${c0['initial_cash']:,.0f}.",
-                f'<p class="verdict">{esc(verdict(runs))}</p>{tiles}{findings_block(runs)}', summary_explain),
+                summary_body, summary_explain),
         section("drawdowns", "down", "Drawdowns: how deep did it fall?",
                 "The percentage lost since the last high point, every day.",
                 f'<div class="legend">{legend}{trip_leg}</div>'
@@ -1243,19 +1274,43 @@ nav a:hover{{background:var(--tipbg);color:var(--ink)}}
 nav a.on{{background:var(--accentbg);color:var(--accent);font-weight:600}}
 .nic{{width:20px;height:20px;flex:none}}
 .side-foot{{margin-top:auto;font-size:12px;color:var(--ink3);padding:0 8px;line-height:1.5}}
-main{{padding:32px 36px 64px;max-width:1120px;width:100%}}
+main{{padding:32px 40px 64px;max-width:1500px;width:100%;margin:0 auto}}
+.backlink{{display:flex;align-items:center;gap:10px;color:var(--ink2);text-decoration:none;font-size:14px;font-weight:500;
+padding:9px 12px;border:1px solid var(--rule);border-radius:10px}}
+.backlink:hover{{border-color:var(--accent);color:var(--accent)}} .backlink svg{{width:18px;height:18px;flex:none}}
 .js .card{{display:none}} .js .card.on{{display:block}}
 .pager{{display:flex;justify-content:space-between;gap:12px;margin-top:28px;padding-top:20px;border-top:1px solid var(--rule)}}
 .pg{{display:flex;flex-direction:column;text-decoration:none;color:var(--ink);font-weight:600;padding:10px 16px;
 border:1px solid var(--rule);border-radius:12px;min-width:150px}}
 .pg:hover{{border-color:var(--accent);color:var(--accent)}} .pg.next{{text-align:right;margin-left:auto}}
 .pgk{{font-size:12px;font-weight:400;color:var(--ink3)}}
-.embed{{display:block}} .embed .side{{position:sticky;top:0;height:auto;flex-direction:row;align-items:center;padding:8px 12px;
-border-right:0;border-bottom:1px solid var(--rule);z-index:5}}
-.embed .brand,.embed .side-foot{{display:none}} .embed nav{{flex-direction:row;overflow-x:auto;gap:2px}}
-.embed nav a{{padding:8px 12px;font-size:14px}} .embed main{{padding:20px 20px 40px;max-width:none}}
-@media print{{.side,.pager{{display:none}} .app{{display:block}} .js .card{{display:block}}}}
-.card{{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:30px 32px;margin:0 0 22px;scroll-margin-top:90px}}
+.embed{{display:block}} .embed .side{{position:sticky;top:0;height:auto;display:block;padding:0 20px;
+border-right:0;border-bottom:1px solid var(--rule);z-index:5;background:var(--panel)}}
+.embed .brand,.embed .side-foot{{display:none}} .embed nav{{display:block;overflow:visible}}
+.embed main{{padding:20px 20px 40px;max-width:none}}
+.tl1{{display:flex;gap:6px;border-bottom:1px solid var(--rule)}}
+.tl1 .g{{border:0;background:none;font:inherit;font-size:15px;font-weight:600;color:var(--ink3);padding:12px 10px 10px;
+cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:7px}}
+.tl1 .g:hover{{color:var(--ink)}} .tl1 .g.on{{color:var(--accent);border-bottom-color:var(--accent)}}
+.tl1 .n{{font-size:11px;font-weight:600;background:var(--tipbg);color:var(--ink3);border-radius:999px;padding:1px 7px}}
+.tl1 .g.on .n{{background:var(--accentbg);color:var(--accent)}}
+.tl1 .full{{margin:0 0 6px auto;align-self:center;display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;
+color:var(--accent);text-decoration:none;border:1px solid var(--accent);border-radius:10px;padding:6px 12px;white-space:nowrap}}
+.tl1 .full:hover{{background:var(--accent);color:#fff}} .tl1 .full svg{{width:16px;height:16px;flex:none}}
+.embed .tl1 .full span{{display:inline}}
+@media (max-width:540px){{.embed .tl1 .full span{{display:none}} .tl1 .g{{padding:12px 6px 10px}}}}
+.embed .tl2{{display:flex;flex-wrap:wrap;gap:4px;padding:10px 0 12px}}
+.embed .tl2 a{{display:inline-block;padding:6px 12px;border-radius:999px;font-size:14px;color:var(--ink2);white-space:nowrap}}
+.embed .tl2 a:hover{{background:var(--tipbg);color:var(--ink)}}
+.embed .tl2 a.on{{background:var(--accentbg);color:var(--accent);font-weight:600}}
+.embed .tl2 a[hidden]{{display:none}}
+@media print{{.side,.pager{{display:none}} .app{{display:block}} .js .card{{display:block}} main{{max-width:none}}}}
+.card{{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:30px 32px;margin:0 0 22px;scroll-margin-top:90px;
+container-type:inline-size}}
+.sumgrid{{display:grid;grid-template-columns:minmax(0,1fr)}}
+@container (min-width:1030px){{.sumgrid{{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:40px;align-items:start}}
+.sumL .tiles{{grid-template-columns:repeat(2,minmax(0,1fr))}} .sumL .verdict{{margin-top:0}} .sumR .h3{{margin-top:2px}}}}
+.note,.explain p,.luck p{{max-width:110ch}}
 .card-h{{display:flex;gap:16px;align-items:flex-start;margin-bottom:18px}}
 .ib{{flex:none;width:44px;height:44px;border-radius:12px;background:var(--accentbg);color:var(--accent);display:grid;place-items:center}}
 .ic{{width:24px;height:24px}}
@@ -1315,7 +1370,7 @@ tr.group th{{font-weight:600;color:var(--accent);padding-top:22px;font-size:14px
 .thrlab{{position:absolute;left:5%;transform:translateX(-50%)}} .pv{{color:var(--ink);font-weight:500}}
 .vbar{{stroke:var(--ink3);stroke-width:1;opacity:.45;fill:none}} .vbarbg{{background:var(--ink3)}}
 .varl{{stroke:var(--accent);stroke-width:1.6}} .vx{{fill:var(--bad)}} .vxbg{{background:var(--bad);border-radius:50%}}
-.small-v{{font-size:18px;max-width:none}}
+.small-v{{font-size:18px;max-width:95ch}}
 .zone{{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px}}
 .zone.green{{background:var(--goodbg);color:var(--good)}} .zone.yellow{{background:#fdf3e1;color:#b26a00}}
 .zone.red{{background:var(--badbg);color:var(--bad)}}
@@ -1328,9 +1383,6 @@ tr.group th{{font-weight:600;color:var(--accent);padding-top:22px;font-size:14px
 .vfig{{display:none}} .vfig.on{{display:block}}
 .ngrp{{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);padding:14px 12px 4px}}
 .ngrp:first-child{{padding-top:2px}}
-.embed .ngrp{{display:flex;align-items:center;padding:0 4px 0 12px;font-size:10px;white-space:nowrap;letter-spacing:.05em}}
-.embed .ngrp:first-child{{padding-left:2px}}
-.embed nav a{{padding:8px 8px}}
 .findings{{list-style:none;padding:0;margin:0;display:grid;gap:8px}}
 .findings a{{display:flex;gap:12px;align-items:flex-start;text-decoration:none;color:var(--ink);border:1px solid var(--rule);
 border-radius:12px;padding:12px 14px;font-size:15px}}
@@ -1367,7 +1419,8 @@ code{{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}
 @media (max-width:980px){{.tiles{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 @media (max-width:820px){{.app{{display:block}} .side{{position:sticky;height:auto;flex-direction:row;align-items:center;
 padding:10px 12px;gap:10px;border-right:0;border-bottom:1px solid var(--rule);z-index:5}}
-.brand small,.side-foot,nav a span{{display:none}} nav{{flex-direction:row;overflow-x:auto}} nav a{{padding:9px}}
+.brand small,.side-foot,nav a span,.ngrp,.backlink span{{display:none}} nav{{flex-direction:row;overflow-x:auto}} nav a{{padding:9px}}
+.backlink{{padding:8px;flex:none}}
 main{{padding:18px 12px 48px}}}}
 @media (max-width:560px){{.card{{padding:20px 16px}} .verdict{{font-size:19px}} .tiles{{grid-template-columns:1fr}}
 .pg{{min-width:0}}}}
@@ -1375,21 +1428,30 @@ main{{padding:18px 12px 48px}}}}
 <div class="app{" embed" if embed else ""}">
 <aside class="side">
 <div class="brand">{icon("shield")}<div>RiskLens<small>{sym} risk report</small></div></div>
+{f'<a class="backlink" href="{esc(app_link)}">{icon("back")}<span>Back to RiskLens</span></a>'
+ if app_link and not embed else ""}
 <nav aria-label="Report sections">{nav}</nav>
 <div class="side-foot">{period}<br>Simulated results, not investment advice.</div>
 </aside>
 <main>{body}</main>
 </div>
 <script>
-const views=[...document.querySelectorAll('.card')], links=[...document.querySelectorAll('nav a')];
+const views=[...document.querySelectorAll('.card')], links=[...document.querySelectorAll('nav a[data-view]')];
+const full=document.getElementById('full');
 function go(){{
   const id=(location.hash||'#summary').slice(1), v=views.find(x=>x.id===id)||views[0];
+  if(full) full.href=full.href.split('#')[0]+'#'+v.id;   // the full report opens on the same page
   views.forEach(x=>x.classList.toggle('on',x===v));
   links.forEach(a=>{{const on=a.dataset.view===v.id; a.classList.toggle('on',on);
     if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');}});
+  const cur=links.find(a=>a.dataset.view===v.id);
+  if(cur&&cur.dataset.g!==undefined){{const g=cur.dataset.g;
+    document.querySelectorAll('.tl1 .g').forEach(b=>{{const on=b.dataset.g===g;b.classList.toggle('on',on);b.setAttribute('aria-selected',on)}});
+    links.forEach(a=>{{a.hidden=a.dataset.g!==g}});}}
   requestAnimationFrame(()=>window.scrollTo(0,0));
 }}
 window.addEventListener('hashchange',go); window.addEventListener('load',go); go();
+document.querySelectorAll('.tl1 .g').forEach(b=>b.addEventListener('click',()=>{{location.hash='#'+b.dataset.first}}));
 document.querySelectorAll('.vt').forEach(b=>b.addEventListener('click',()=>{{
   document.querySelectorAll('.vt').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.vfig').forEach(f=>f.classList.toggle('on',f.id===b.dataset.show));}}));

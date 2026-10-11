@@ -23,6 +23,7 @@ requests for the same run are computed once.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -39,6 +40,30 @@ from .data import load_csv, load_manifest, sha256_file
 
 MAX_BODY = 64 * 1024
 RUN_ID_RE = re.compile(r"[0-9a-f]{24}")
+# The project folder (the one holding data/ and results/), wherever the
+# server is started from
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _build_id() -> str:
+    """Fingerprint of all the app's code. The launcher compares it with a
+    running server's to tell "this copy is already running" from "an older
+    copy is still running"."""
+    h = hashlib.sha256()
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in sorted(os.listdir(here)):
+        if name.endswith(".py"):
+            with open(os.path.join(here, name), "rb") as f:
+                h.update(name.encode() + b"\0" + f.read())
+    return h.hexdigest()[:16]
+
+
+BUILD = _build_id()
+
+
+def home_id(data_dir: str) -> str:
+    """Short fingerprint of a data folder's location (not its path)."""
+    return hashlib.sha256(os.path.realpath(data_dir).encode()).hexdigest()[:12]
 MARKET_SYM_RE = re.compile(r"[A-Z0-9.\-=^]{1,15}")
 
 # Public demo mode (--public): limits so one visitor can't hog a shared server
@@ -105,6 +130,7 @@ class App:
         self.streams = StreamSlots(PUBLIC["streams_total"], PUBLIC["streams_per_client"])
         self.data_dir = data_dir
         self.results_dir = results_dir
+        self.home = home_id(data_dir)
         os.makedirs(results_dir, exist_ok=True)
         self.version = runner.engine_version()
         self.datasets = {}
@@ -365,7 +391,8 @@ def make_handler(app: App, quiet: bool = True):
                 except gateway.GatewayError as e:
                     return self._err(400, str(e))
             if u.path == "/health":
-                return self._send(200, {"ok": True, "engine_version": app.version, "public": app.public,
+                return self._send(200, {"ok": True, "engine_version": app.version, "build": BUILD,
+                                        "home": app.home, "public": app.public,
                                         "downloads": app.downloads, **app.stats})
             if u.path == "/datasets":
                 return self._send(200, {s: {k: v for k, v in e.items() if k != "path"}
@@ -379,7 +406,8 @@ def make_handler(app: App, quiet: bool = True):
                 if not runs or any(r is None for r in runs):
                     return self._err(404, "unknown run id")
                 embed = parse_qs(u.query).get("embed", ["0"])[0] == "1"
-                return self._send(200, report.render(runs, embed=embed), "text/html")
+                return self._send(200, report.render(runs, embed=embed, app_link="/#/analyze"),
+                                  "text/html")
             return self._err(404, "not found")
 
         def _body(self, allow_empty=False):
@@ -493,14 +521,21 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = os.name != "nt"
 
 
+def bind(app, host, port, quiet=True):
+    """An HTTP server for ``app`` listening on host:port. Raises OSError if
+    the port is taken."""
+    httpd = _Server((host, port), make_handler(app, quiet))
+    httpd.daemon_threads = True
+    return httpd
+
+
 def serve(host, port, data_dir, results_dir, quiet=True, public=False, allow_downloads=False):
     app = App(data_dir, results_dir, public=public, allow_downloads=allow_downloads)
     try:
-        httpd = _Server((host, port), make_handler(app, quiet))
+        httpd = bind(app, host, port, quiet)
     except OSError as e:
         raise SystemExit(f"cannot listen on {host}:{port} ({e}). Is another RiskLens "
                          f"server already running? Stop it with Ctrl+C or use --port.")
-    httpd.daemon_threads = True
     return app, httpd
 
 
@@ -515,8 +550,10 @@ def main(argv=None):
                     default=os.environ.get("RISKLENS_ALLOW_DOWNLOADS", "").lower() in ("1", "true", "yes"),
                     help="public demo: let visitors analyze any ticker (downloads from Yahoo Finance; "
                          "rate-limited). Also set by RISKLENS_ALLOW_DOWNLOADS=1")
-    ap.add_argument("--data-dir", default="data")
-    ap.add_argument("--results-dir", default="results")
+    ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"),
+                    help="default: the data folder next to the code")
+    ap.add_argument("--results-dir", default=os.path.join(ROOT, "results"))
+    ap.add_argument("--open", action="store_true", help="open the app in your browser once it is up")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args(argv)
     a.host = a.host or ("0.0.0.0" if a.public else "127.0.0.1")
@@ -526,8 +563,12 @@ def main(argv=None):
     print(f"RiskLens server on http://{a.host}:{a.port}  engine={app.version}  "
           f"datasets={names}", flush=True)
     shown = "127.0.0.1" if a.host == "0.0.0.0" else a.host
-    print(f"Open the app in your browser: http://{shown}:{a.port}/"
+    url = f"http://{shown}:{a.port}/"
+    print(f"Open the app in your browser: {url}"
           + ("  (public demo mode: rate limits on)" if a.public else ""), flush=True)
+    if a.open:                  # the socket is already listening, so the page can load at once
+        import webbrowser
+        webbrowser.open(url)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

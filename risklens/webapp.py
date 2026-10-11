@@ -506,7 +506,7 @@ td.num,th.num{text-align:right}
 
   <section class="page" id="p-history">
     <div class="card scroll"><table><thead><tr><th>Saved</th><th>Stock</th><th>Strategy</th><th>Risk rules</th><th>Period</th>
-      <th class="num">Annual return</th><th class="num">Max drawdown</th><th class="num">Sharpe</th><th></th></tr></thead>
+      <th class="num">Annual return</th><th class="num">Max drawdown</th><th class="num">Sharpe</th><th>Report</th></tr></thead>
       <tbody id="hist"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody></table></div>
   </section>
 </div></div>
@@ -614,7 +614,7 @@ async function runAnalysis(){readForm();if(!F.sym)return;const my=++A.token,sym=
   for(const c of hasRules()?[cfg(false),cfg(true)]:[cfg(false)]){const r=await api('/runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});ids.push(r.run_id);cached=cached&&r.cached}
   if(my!==A.token)return;                    // a newer switch happened meanwhile
   $('result').innerHTML=`<iframe title="Risk report for ${esc(sym)}" src="/report?runs=${ids.join(',')}&embed=1"></iframe>`;A.shown=sym;
-  $('amsg').innerHTML=`${esc(sym)}: ${cached?'loaded from saved results':'computed'} in ${Math.round(performance.now()-t0)} ms. <a href="/report?runs=${ids.join(',')}" target="_blank" rel="noopener">Open full page</a>`;
+  $('amsg').textContent=`${sym}: ${cached?'loaded from saved results':'computed'} in ${Math.round(performance.now()-t0)} ms.`;
   health();
  }catch(e){if(my===A.token){$('amsg').className='msg err';$('amsg').textContent=e.message}}finally{if(my===A.token)$('result').classList.remove('busy')}}
 $('run').addEventListener('click',runAnalysis);
@@ -870,7 +870,7 @@ async function loadHistory(){try{const rows=await api('/api/history');
   const rules=[k.vol_target?`vol ${Math.round(k.vol_target*100)}%`:null,k.max_drawdown?`breaker ${Math.round(k.max_drawdown*100)}%`:null,k.max_exposure<1?`cap ${Math.round(k.max_exposure*100)}%`:null].filter(Boolean).join(', ')||'none';
   return `<tr><td>${esc(r.saved)}</td><td><b>${esc(r.symbol)}</b></td><td>${esc({sma_cross:'Trend',momentum:'Momentum',buy_and_hold:'Buy & hold'}[s.name]||s.name)}${p?' '+esc(p):''}</td><td>${esc(rules)}</td>
   <td>${esc(r.start.slice(0,7))} to ${esc(r.end.slice(0,7))}</td><td class="num">${pct(r.cagr)}</td><td class="num">${loss(r.max_drawdown)}</td><td class="num">${r.sharpe.toFixed(2)}</td>
-  <td><a class="btn" style="padding:6px 8px" href="/report?runs=${r.run_id}" target="_blank" rel="noopener" aria-label="Open report" title="Open report">${svg('external')}</a></td></tr>`}).join('')
+  <td><a class="btn" style="padding:5px 11px;font-size:14px" href="/report?runs=${r.run_id}" target="_blank" rel="noopener" title="Open this report full screen in a new tab">${svg('external')}Open</a></td></tr>`}).join('')
   :'<tr><td colspan="9" class="empty">No analyses yet. Run one from Analyze.</td></tr>'}
  catch(e){$('hist').innerHTML=`<tr><td colspan="9" class="empty">${esc(e.message)}</td></tr>`}}
 
@@ -893,7 +893,7 @@ function symMsg(t,cls=''){const m=$('symmsg');m.className='symmsg '+cls;m.textCo
 /* Type any ticker: a stock you already have opens at once; a new one is
    downloaded the first time (frozen and fingerprinted), then analyzed. */
 function goTo(x){setSym(x);const pg=curPage();if(pg==='analyze')runAnalysis();else if(pg==='replay')switchSym(x);else location.hash='#/analyze'}
-const dlHelp=m=>/yfinance/.test(m)?'Downloading needs one package. In your terminal run: pip install yfinance (then try again)':m;
+const dlHelp=m=>/yfinance/.test(m)?'Downloading needs the yfinance package. Close RiskLens and start it again with Start RiskLens, which installs it (or run: pip install yfinance).':m;
 async function analyzeTicker(){const x=$('add-sym').value.trim().toUpperCase();if(!x){$('add-sym').focus();return}
  if(DATASETS[x]){$('add-sym').value='';symMsg('');goTo(x);return}
  if(!DOWNLOADS){symMsg('This public demo can’t download new stocks. Pick one below, or run RiskLens on your own computer to analyze any ticker.','err');return}

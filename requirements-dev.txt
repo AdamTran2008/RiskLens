@@ -1,4 +1,4 @@
-# Runtime needs only the Python standard library (3.11+).
+# Runtime needs only the Python standard library (3.10+).
 pytest>=8          # tests
 hypothesis>=6      # property-based tests
 # Optional, only for downloading real prices once (scripts/fetch_data.py):

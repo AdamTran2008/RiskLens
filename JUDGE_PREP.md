@@ -9,11 +9,12 @@ physically can't see the future, the money balances to the cent every day,
 and every result is reproducible from a hash. It even checks whether its
 own risk estimate was right, the way banks must. And it runs live: every order
 goes through eight pre-trade risk checks against real prices, with a kill
-switch. We proved it with 160 tests, and when we planted 19 bugs, the tests
+switch. We proved it with 169 tests, and when we planted 19 bugs, the tests
 caught all 19."
 
 ## Demo (3 minutes)
-1. Start the server (`python -m risklens.server`) and open **http://127.0.0.1:8765/**.
+1. Double-click **Start RiskLens.bat** in the project folder. It opens
+   **http://127.0.0.1:8765/** in the browser by itself (keep its black window open).
 2. **Live market (open with this, it's the most alive):** click **BTC** and
    Connect. "These are real Bitcoin trades from Coinbase, pushed to us the
    moment they happen. On every trade we recompute the risk: the volatility
@@ -34,8 +35,9 @@ caught all 19."
    And it works on any stock": type a ticker the judge picks (say **NVDA**) in
    the search box and press Enter. "First time it downloads the history,
    freezes it with a fingerprint, and analyzes it."
-   *Before judging, type SPY, AAPL, NVDA and TSLA once so they're saved; then
-   the demo never depends on the venue Wi-Fi.*
+   *The first start downloads SPY, QQQ, AAPL, MSFT, NVDA and TSLA and saves
+   them, so start it once before judging; then the demo never depends on the
+   venue Wi-Fi.*
 5. **Analyze:** pick SPY, Trend 50/200, 15% volatility target and 15% breaker,
    then Run. Press **→** to flip to the next stock and **←** to come back:
    "Saved results come back in about 20 milliseconds, because every run is
@@ -46,13 +48,14 @@ caught all 19."
    risk from today's position × the stock's risk passes." Then **What each
    rule does**: "The volatility target did the work. The circuit breaker
    alone actually made the worst fall deeper." Then **Robust or lucky?**:
-   "25 nearby settings, and both halves of the period."
+   "25 nearby settings, and both halves of the period." Click **Open full
+   report** (top right of the report) to show it full screen.
 6. **Replay:** press Start on Fast. Talk while it runs: "This is the
    engine replaying 15 years one day at a time. Watch the teal line stay
    shallower in the drawdown chart. When the breaker fires, it shows up here
    in the alert feed." Pause during the COVID crash (early 2020) to show it.
 7. **History:** "Every run is saved and reproducible from its ID."
-8. If asked about correctness: `python -m pytest -q` (160 passed) and
+8. If asked about correctness: `python -m pytest -q` (169 passed) and
    `./scripts/mutation_check.sh` (19/19).
 
 ## Likely questions
@@ -131,9 +134,11 @@ the same ID, and nobody can quietly re-run on edited data (the server refuses
 to start if a data file's hash changed).
 
 **"What's the bottleneck?"**
-Not the backtest. Simulating 10 years takes 12 ms (~180k bars/s). The luck
-test is 97% of the time: 1,000 shuffles in pure Python. Next: NumPy, or stop
-early once the p-value is clearly decided.
+Not the backtest. Simulating 10 years takes 9 ms (~200k bars/s). The luck
+test is 55% of a full analysis (1,000 shuffles in pure Python) and the deep
+dive's 29 extra backtests another 31%. Next: NumPy for the luck test, or stop
+it early once the p-value is clearly decided, and run the robustness grid in
+parallel processes.
 
 **"Why did max drawdown with risk rules exceed the 15% breaker?"**
 The breaker limits each losing episode. After the cooldown it re-arms from the
@@ -159,6 +164,6 @@ is 2.0000000000000018 in floating point, so VaR used the 3rd-worst day instead
 of the 2nd. That's exactly the kind of silent error that makes backtests lie."
 
 ## Numbers to know
-~180,000 bars/s · 10-year run simulates in 12 ms · luck test 97% of time ·
+~200,000 bars/s · 10-year run simulates in 9 ms · luck test 55% of a run ·
 cached result 3 ms · full analysis 0.92 s · live pipeline 0.64 ms p50 · pre-trade checks 63 µs p50 ·
-160 tests · 19/19 mutations caught · money in integer cents (backtest) and exact fractions (gateway).
+169 tests · 19/19 mutations caught · money in integer cents (backtest) and exact fractions (gateway).

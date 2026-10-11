@@ -19,7 +19,8 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 from risklens.fetch import FetchError, add_dataset  # noqa: E402
 
 
@@ -28,7 +29,7 @@ def main(argv=None):
     ap.add_argument("symbols", nargs="+")
     ap.add_argument("--start", default="2005-01-01")
     ap.add_argument("--end", default=None, help="YYYY-MM-DD, inclusive (default: latest day)")
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"))
     a = ap.parse_args(argv)
     failed = 0
     for sym in a.symbols:

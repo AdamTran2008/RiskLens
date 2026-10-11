@@ -4,7 +4,7 @@
 crashes, checked against live prices, and proven correct by its own tests.**
 
 [![tests](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml)
-&nbsp;Python 3.11–3.13 · engine in pure standard-library Python · 160 tests ·
+&nbsp;Python 3.10–3.14 · engine in pure standard-library Python · 169 tests ·
 19/19 planted bugs caught
 
 **Live demo:** _add your hosted link here (see [Deploy](#deploy))_ ·
@@ -62,20 +62,37 @@ built-in synthetic dataset and the clearly labeled simulated feed.
 
 ## 1. Quick start
 
+**Run the app: double-click one file.** Download the repo (or unzip it), then
+* **Windows:** double-click **`Start RiskLens.bat`**
+* **Mac:** double-click **`start.command`** (the first time: right-click → Open)
+* **Linux:** `./start.command`
+
+It checks for Python 3.10+, installs the two packages the app uses on the
+first run, downloads a few stocks to start with (SPY, QQQ, AAPL, MSFT, NVDA,
+TSLA; skipped if offline), starts the server and opens
+**http://127.0.0.1:8765/** in your browser. Keep its window open while you use
+the app; close it to stop. Double-click again and it reopens the running app
+instead of starting a second one, and if an older copy still holds the port,
+it starts on the next free one so you never see stale code. From a terminal
+the same is `python -m risklens.launch`.
+
+**For developers:**
+
 ```bash
 python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests only)
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 160 tests, ~30 s
+python3 -m pytest -q         # 169 tests, ~40 s
 ./scripts/mutation_check.sh  # plants 19 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~90 s)
-python3 -m risklens.server   # then open http://127.0.0.1:8765/
+python3 -m risklens.server --open   # the server alone; opens http://127.0.0.1:8765/
 ```
 
-**Analyze any stock:** `pip install -r requirements.txt` once (adds yfinance
-and websocket-client), start the server, and type a ticker in the search box
-(AAPL, BRK-B, ^GSPC, 7203.T…; press `/` to jump there). The first time, it is
+**Analyze any stock:** type a ticker in the search box (AAPL, BRK-B, ^GSPC,
+7203.T…; press `/` to jump there). The launcher installs what this needs; if
+you start the server yourself, run `pip install -r requirements.txt` once
+(adds yfinance and websocket-client). The first time, it is
 downloaded, frozen to `data/<TICKER>.csv`, fingerprinted in
 `data/manifest.json`, and analyzed at once. The command line does the same:
 
@@ -225,8 +242,8 @@ exposure-limit boundary), and we strengthened it.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **160 tests pass** (`python3 -m pytest -q`, ~30 s; full output in
-`tests/RESULTS.txt`), on CPython 3.11, 3.12 and 3.13.
+Results: **169 tests pass** (`python3 -m pytest -q`, ~40 s; full output in
+`tests/RESULTS.txt`), on CPython 3.10, 3.11, 3.12, 3.13 and 3.14.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)
 * **Volatility:** sample std × √252. **Sharpe:** mean / std × √252, risk-free rate 0.
@@ -375,11 +392,13 @@ risklens/   data.py strategies.py engine.py metrics.py runner.py server.py clien
             webapp.py (the app) live.py (replay) market.py (live market feeds + live risk)
             gateway.py (pre-trade risk checks, kill switch, paper account)
             analysis.py (deep dive) fetch.py (downloads any ticker)
+            launch.py (one-click start: packages, starter stocks, port, browser)
 tests/      test_engine.py test_properties.py test_metrics_data.py test_server.py test_live.py
             test_market.py test_var_check.py test_analysis.py test_gateway.py test_datasets.py
-            test_public.py helpers.py
+            test_public.py test_launch.py helpers.py
+Start RiskLens.bat, start.command   double-click to run (Windows; Mac/Linux)
 docs/img/   screenshots
-.github/    workflows/tests.yml (tests on 3.11-3.13 + mutation check)
+.github/    workflows/tests.yml (tests on 3.10-3.14 + mutation check)
 render.yaml Procfile Dockerfile requirements.txt   (deploy)
 bench/      bench.py results/*.json
 scripts/    demo.sh fetch_data.py mutation_check.sh
