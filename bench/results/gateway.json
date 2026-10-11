@@ -1,0 +1,28 @@
+{
+  "env": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "logical_cpus": 2,
+    "affinity": [
+      0,
+      1
+    ],
+    "os": "Linux 6.18.44-fc-v114",
+    "python": "3.13.16"
+  },
+  "workload": "10,000 orders (alternating buy/sell 0.01 BTC) through all eight checks and the simulated fill, one paper account; then 1,000 orders over HTTP on loopback (a new TCP connection per order, as the server speaks HTTP/1.0; the response includes the full account state)",
+  "check_us_in_process": {
+    "p50": 72.4,
+    "p90": 85.3,
+    "p99": 127.0,
+    "max": 752.3,
+    "n": 10000
+  },
+  "checks_per_second_in_process": 14652,
+  "order_round_trip_ms_http": {
+    "p50": 1.6,
+    "p90": 1.84,
+    "p99": 2.31,
+    "max": 4.91,
+    "n": 1000
+  }
+}

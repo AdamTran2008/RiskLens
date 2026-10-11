@@ -2,10 +2,15 @@
 
 **Project name:** RiskLens
 
-**Tagline:** A backtester you can trust: it can't peek at the future, its
-books balance to the cent, and it shows exactly what risk rules buy you.
+**Tagline:** Risk management for trading strategies: tested through real
+crashes, checked against live prices, and proven correct by its own tests.
 
 **Track:** Maverick · **Superlative:** Lucera Trading Systems Challenge
+
+**In one line (put this first):** A backtesting engine that prevents
+look-ahead bias and supports reproducible runs, built around risk controls
+(pre-trade risk checks, position limits, exposure monitoring and a kill
+switch), and also running live on real prices.
 
 ## Inspiration
 Most backtests you see online look amazing and are quietly wrong. They peek
@@ -13,94 +18,104 @@ at future prices, fill trades at prices nobody could have gotten, ignore
 costs, and report returns without risk. In 2012 Knight Capital lost about
 $440 million in 45 minutes because nothing stopped a broken trading program.
 We wanted a tool that is honest first: one that measures risk properly,
-shows the effect of risk controls, and can prove its own numbers.
+controls it before orders go out, and can prove its own numbers.
 
 ## What it does
-* Runs a trading strategy over historical daily prices (real data from Yahoo
-  Finance, frozen as a hashed snapshot, or seeded synthetic data).
-* Runs it twice, **without and with risk rules** (volatility targeting,
-  exposure cap, drawdown circuit breaker), and compares max drawdown,
-  volatility, Sharpe, Sortino, 1-day VaR and Expected Shortfall, and worst day.
-* A **luck test** shuffles the strategy's timing 1,000 times to check whether
-  it beats random timing, and reports a p-value.
-* Produces an HTML report with equity and drawdown charts, a metrics table,
-  every risk-rule event, and the run's reproducibility manifest.
-
-* **Live market:** real prices as they happen, with live feedback from the
-  same risk rules. Crypto streams every trade from Coinbase's public
-  WebSocket (24/7, no key); stocks come from Yahoo Finance (delayed). On each
-  update it shows how much the volatility target lets you hold right now, how
-  close the drawdown breaker is to firing, 60-minute volatility and 1-minute
-  VaR, raises alerts on threshold crossings, and **measures its own
-  latency on screen**: exchange → server, risk calculation, server → browser,
-  and trade → your screen.
-* A web app with five screens: **Overview** (watchlist with a risk status
-  light per stock), **Live market**, **Analyze** (sliders for the strategy
-  and risk rules), **Replay** (history streamed through the engine day by
-  day, like a risk desk screen) and **History** (every saved run).
+* **Analyze:** runs a strategy over historical daily prices (real data from
+  Yahoo Finance, frozen as a hashed snapshot, or seeded synthetic data)
+  **twice, without and with risk rules** (volatility targeting, exposure cap,
+  drawdown circuit breaker), and compares max drawdown, volatility, Sharpe,
+  Sortino, VaR, Expected Shortfall and stress tests through real crashes.
+* **VaR check:** backtests the risk model itself, the way banks must. Each
+  day's VaR is forecast from the previous 250 days only; then the Kupiec test
+  asks whether the number of breaches is right, the Christoffersen test asks
+  whether they cluster, and the Basel traffic light grades the 99% VaR.
+* **Luck test:** shuffles the strategy's timing 1,000 times and reports a
+  p-value, so nobody mistakes luck for skill.
+* **Live market:** every trade from Coinbase's public WebSocket (24/7, no key;
+  stocks from Yahoo, delayed). On each update: how much the volatility target
+  lets you hold right now, how close the breaker is to firing, 60-minute
+  volatility and 1-minute VaR, alerts, and **a measured latency breakdown on
+  screen** (exchange → server, risk calculation, server → browser, trade →
+  your screen).
+* **Risk gateway:** a paper account where every order must pass **eight
+  pre-trade checks** against the live price: fresh price (fail closed), kill
+  switch, fat-finger order size, order rate, cash, no short selling, position
+  limit, and an exposure limit that tightens when volatility rises. A **kill
+  switch** can be pressed by hand and trips by itself on a drawdown: it sells
+  everything and blocks buys until a person re-arms it.
+* **Replay:** streams 10+ years through the engine day by day like a risk
+  desk screen; plus **Overview** (risk light per stock) and **History**.
 
 ## How we built it
-The engine, server and app are Python standard library only. A run **server** owns the data snapshots and an
-immutable result store; a CLI **client** submits runs and fetches reports.
-Each run's ID is the SHA-256 of (config, data hash, engine version), so the
-same question always returns the same stored answer, and changed data or code
-can never be silently mixed with old results.
+The engine, server and app are pure Python standard library. A run **server**
+owns the data snapshots and an immutable result store; a CLI **client** and
+the browser app talk to it over HTTP and Server-Sent Events. Each run's ID is
+the SHA-256 of (config, data hash, engine version), so the same question
+always returns the same stored answer.
 
 For live data, a reader thread holds Coinbase's WebSocket, builds trades into
 1-minute bars, and wakes the stream loop the instant a trade lands; the loop
-recomputes the risk snapshot and pushes it to the browser over Server-Sent
-Events with Nagle's algorithm off. If the feed drops, it reconnects and
-refills the missed minutes from Coinbase's own candles.
+recomputes risk, feeds the price to the risk gateway, and pushes the update
+to the browser with Nagle's algorithm off. If the feed drops, it reconnects
+and refills the missed minutes from Coinbase's own candles.
+
+It also runs as a public website (`--public`): per-visitor rate limits,
+capped live streams, a bounded store, and one paper account per browser.
 
 ## Correctness evidence
 * **No look-ahead:** Hypothesis replaces every price after day k with
-  different values and proves nothing decided up to day k changes. Orders
-  decided at the close fill at the next open.
-* **Books balance to the cent:** money is integer cents. Invariants are
-  checked every day, and an independent ledger replay rebuilds cash and
-  shares from the trade list over hundreds of random markets.
-* **Risk rules always hold**, and every run is reproducible.
-* **The live replay matches the backtest exactly:** streamed values equal the
-  batch engine's to the cent, and pausing and resuming changes nothing.
-* **The live feed never invents or drops prices silently:** tested against a
-  fake socket that speaks Coinbase's message format (bar building, reconnect
-  and gap fill, bad symbols, end-to-end push).
-* **82 tests**. A mutation script plants 11 realistic bugs and the tests
-  catch **11/11**. The tests also caught two real bugs during the hackathon:
-  a floating-point off-by-one in VaR, and a crash when a price rounds to $0.00.
+  different values and proves nothing decided up to day k changes; the same
+  is proven for every VaR forecast.
+* **Books balance exactly:** backtest money is integer cents, gateway money is
+  exact fractions; cash, positions and fees reconcile after every trade.
+* **No approved order ever breaks a limit:** Hypothesis runs random
+  sequences of orders, price moves, limit changes and kill switch presses,
+  and checks every limit after every step.
+* **The live replay matches the backtest to the cent.**
+* **125 tests**, run on Python 3.11–3.13 in CI. A mutation script plants **17
+  realistic bugs** (look-ahead, ignored kill switch, stale prices, wrong
+  p-values…) and the tests catch **17/17**. The tests also caught real bugs
+  during the hackathon: a floating-point off-by-one in VaR, and a crash when a
+  price rounds to $0.00.
 
-## Performance (2 vCPU VM, pinned cores)
-* ~**180,000 bars/s** simulated with all invariants checked; flat from 10 to 1,000 years.
-* A 10-year backtest simulates in **12 ms**; the luck test is 97% of run time
-  (the measured bottleneck, next to optimize).
-* Cached results served in **2 ms** p50; 455 req/s with 8 concurrent clients.
-* **Live:** a trade reaches the browser's socket **0.88 ms** p50 after it
-  arrives at our server (risk recalculation ~0.13 ms). The rest is the
-  internet, which the app measures and shows live.
+## Performance (2 vCPU VM)
+* Backtest engine: ~**180,000 bars/s** with all invariants checked; a 10-year
+  run simulates in **12 ms** (the luck test is 97% of run time, the measured
+  bottleneck).
+* Live: a trade reaches the browser's socket **0.88 ms** p50 after it arrives
+  at our server. The rest is the internet, which the app measures live.
+* Risk gateway: all eight pre-trade checks in **72 µs** p50 (~14,600 orders/s);
+  1.6 ms round trip over HTTP.
+
+## Challenges
+Low latency without lying about it: the free stock feed is a minute delayed,
+so we added Coinbase's real-time feed and put a measured latency breakdown on
+screen instead of claiming a number. And making tests that really bite: our
+mutation script twice found a test too weak to catch a planted bug, and we
+fixed both.
 
 ## What we learned
 The backtest loop is the easy part. The hard part is being sure it's right:
 defining "no look-ahead" precisely enough to test, keeping money exact, and
-measuring risk honestly instead of just returns.
-
-## Challenges
-Low latency without lying about it. The free stock feed is a minute
-delayed, so we added Coinbase's real-time crypto feed and put a measured
-latency breakdown on screen instead of claiming a number.
+checking the risk estimate itself. Our own VaR check showed that historical
+VaR breaches cluster in volatile periods, which is exactly why the
+volatility target and kill switch exist.
 
 ## What's next
-NumPy luck test, multi-asset portfolios with a portfolio VaR limit,
-walk-forward testing, and an in-memory result cache.
+A faster-reacting VaR model (EWMA or GARCH) graded by the same VaR check,
+multi-asset portfolios with a portfolio VaR limit, walk-forward testing, and
+a NumPy luck test.
 
 ## Built with
-python, http.server, server-sent-events, websocket-client, coinbase-exchange-api, pytest, hypothesis, yfinance
+python, http.server, server-sent-events, websocket-client, coinbase-exchange-api,
+pytest, hypothesis, yfinance, github-actions
 
 ## Disclosure
 All code was written during HackRU with help from an AI coding assistant
 (Claude), and was reviewed, run and tested by the team. Runtime uses only the
-Python standard library; pytest and Hypothesis are for tests; yfinance is used
-to download data and for the delayed stock feed; websocket-client for the
-Coinbase live feed. Price data: Yahoo Finance (read-only, not redistributed),
+Python standard library, plus websocket-client for the Coinbase live feed;
+pytest and Hypothesis are for tests; yfinance downloads data and provides the
+delayed stock feed. Price data: Yahoo Finance (read-only, not redistributed),
 Coinbase Exchange public market data (live, not stored), and seeded synthetic
-data. Everything is simulated: no real
-orders, money or credentials.
+data. Everything is simulated: no real orders, money or credentials.

@@ -481,7 +481,7 @@ const PAGES={overview:['Overview','Risk snapshot of every stock you have downloa
 function route(){const p=(location.hash.match(/#\/(\w+)/)||[])[1]||'overview';const k=PAGES[p]?p:'overview';
  document.querySelectorAll('.page').forEach(e=>e.classList.toggle('on',e.id==='p-'+k));
  document.querySelectorAll('.nav a').forEach(a=>{const on=a.dataset.p===k;a.classList.toggle('on',on);on?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')});
- $('ptitle').textContent=PAGES[k][0];$('psub').textContent=PAGES[k][1];
+ $('ptitle').textContent=PAGES[k][0];$('psub').textContent=PAGES[k][1];if(route.last!==k){window.scrollTo(0,0);route.last=k}
  if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='gateway')gOpen(); if(k==='overview')loadOverview();}
 window.addEventListener('hashchange',route);
 
@@ -589,12 +589,13 @@ function css(v){return getComputedStyle(document.documentElement).getPropertyVal
 function plot(cv,series,opts){const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=+cv.getAttribute('height');
  cv.width=w*dpr;cv.height=h*dpr;cv.style.height=h+'px';const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
  const n=L.days||1,pl=58,pr=8,pt=8,pb=22,pw=w-pl-pr,ph=h-pt-pb;
- let lo=opts.lo,hi=opts.hi;for(const s of series)for(const v of s){if(v<lo)lo=v;if(v>hi)hi=v}if(!isFinite(lo)||!isFinite(hi)){lo=0;hi=1}if(hi===lo)hi=lo+1;
+ let lo=opts.lo,hi=opts.hi;for(const s of series)for(const v of s){if(v<lo)lo=v;if(v>hi)hi=v}if(!isFinite(lo)||!isFinite(hi)){lo=0;hi=1}
+ if(hi-lo<1e-9){if(opts.fill){lo=-0.01;hi=0}else{const d=Math.abs(hi)*0.001||1;lo-=d;hi+=d}}
  const raw=(hi-lo)/4,mag=Math.pow(10,Math.floor(Math.log10(raw))),step=[1,2,2.5,5,10].map(m=>m*mag).find(x=>x>=raw);
  lo=Math.floor(lo/step)*step;hi=Math.ceil(hi/step)*step;
  const Y=v=>pt+ph*(1-(v-lo)/(hi-lo)),X=i=>pl+pw*i/Math.max(1,n-1);
  g.font='12px "IBM Plex Sans",system-ui,sans-serif';g.fillStyle=css('--ink3');g.strokeStyle=css('--grid');g.lineWidth=1;
- for(let v=lo;v<=hi+step*1e-6;v+=step){const y=Y(v);g.beginPath();g.moveTo(pl,y);g.lineTo(w-pr,y);g.stroke();g.textAlign='right';g.fillText(opts.fmt(v),pl-8,y+4)}
+ for(let v=lo;v<=hi+step*1e-6;v+=step){const y=Y(v);g.beginPath();g.moveTo(pl,y);g.lineTo(w-pr,y);g.stroke();g.textAlign='right';g.fillText(opts.fmt(v,step),pl-8,y+4)}
  g.textAlign='center';let last='';L.data.forEach((d,i)=>{const yr=d.d.slice(0,4);if(yr!==last){if(last)g.fillText(yr,X(d.t),h-6);last=yr}});
  const cols=[css('--base'),css('--accent')];
  series.forEach((s,k)=>{if(!s.length)return;g.beginPath();s.forEach((v,i)=>{const x=X(L.data[i].t),y=Y(v);i?g.lineTo(x,y):g.moveTo(x,y)});
@@ -602,8 +603,8 @@ function plot(cv,series,opts){const dpr=window.devicePixelRatio||1,w=cv.clientWi
    g.beginPath();s.forEach((v,i)=>{const x=X(L.data[i].t),y=Y(v);i?g.lineTo(x,y):g.moveTo(x,y)})}
   g.strokeStyle=cols[k];g.lineWidth=2;g.lineJoin='round';g.stroke()});
  g.fillStyle=css('--warn');L.data.forEach(d=>{for(const [k] of d.ev)if(k==='DRAWDOWN_BREAKER'){const x=X(d.t);g.beginPath();g.moveTo(x-5,pt);g.lineTo(x+5,pt);g.lineTo(x,pt+8);g.fill()}})}
-function draw(){plot($('c-eq'),[L.data.map(d=>d.eq[0]),L.data.map(d=>d.eq[1])],{lo:Infinity,hi:-Infinity,fmt:v=>'$'+Math.round(v/1000)+'k'});
- plot($('c-dd'),[L.data.map(d=>-d.dd[0]),L.data.map(d=>-d.dd[1])],{lo:0,hi:0,fill:true,fmt:v=>Math.abs(v)<1e-9?'0%':(v*100).toFixed(0).replace('-','−')+'%'})}
+function draw(){plot($('c-eq'),[L.data.map(d=>d.eq[0]),L.data.map(d=>d.eq[1])],{lo:Infinity,hi:-Infinity,fmt:(v,st)=>st>=1000?'$'+Math.round(v/1000)+'k':'$'+Math.round(v).toLocaleString()});
+ plot($('c-dd'),[L.data.map(d=>-d.dd[0]),L.data.map(d=>-d.dd[1])],{lo:0,hi:0,fill:true,fmt:(v,st)=>Math.abs(v)<1e-9?'0%':(v*100).toFixed(st<0.01?1:0).replace('-','−')+'%'})}
 window.addEventListener('resize',schedule);
 $('l-play').addEventListener('click',()=>{if(L.playing){stop();setPlaying(false)}else{if(L.ended)reset();start(L.data.length?L.t+1:0)}});
 $('l-restart').addEventListener('click',()=>{reset();start(0)});

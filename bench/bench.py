@@ -9,6 +9,7 @@
 3. luck     luck-test time vs number of shuffles
 4. server   HTTP latency: cold runs (computed) vs cache hits, 1 and 8
             concurrent clients; server pinned to CPU 0, clients to CPU 1
+6. gateway  pre-trade risk check latency: in process, and over HTTP
 5. live     live market pipeline: time from a trade message arriving on the
             (fake, in-memory) Coinbase socket to the risk update reaching an
             SSE client over loopback; plus risk-snapshot compute time
@@ -261,7 +262,7 @@ def bench_live(tmp, n=200):
         snap[f"{k}_bars"] = {key: round(v, 3) for key, v in lat(ts).items() if key != "n"}
 
     orig = market.make_provider
-    market.make_provider = lambda source, sym: (
+    market.make_provider = lambda source, sym, public=False: (
         market.CoinbaseProvider(connect=lambda url: sock, fetch_candles=candles), 15.0)
     d = os.path.join(tmp, "live-data")
     os.makedirs(d)
@@ -314,8 +315,63 @@ def bench_live(tmp, n=200):
                         "'Exchange -> server') and browser rendering"})
 
 
+# ---------------------------------------------------------- 6. gateway
+def bench_gateway(tmp, n=10_000, n_http=1000):
+    """Pre-trade check latency: all eight checks plus the simulated fill."""
+    from risklens import gateway, server as srv
+    g = gateway.Gateway()
+    g.mark("BTC-USD", 62_000.5, vol=0.45)
+    g.set_limits("bench-session", {"max_orders_per_minute": 10**4})
+    ts = []
+    t_all = time.perf_counter()
+    for i in range(n):
+        if i % 600 == 0:
+            g.mark("BTC-USD", 62_000.5 + i % 7, vol=0.45)        # keep the price fresh
+        t0 = time.perf_counter()
+        d = g.submit("bench-session", {"symbol": "BTC-USD", "side": "buy" if i % 2 == 0 else "sell",
+                                       "qty": "0.01"})
+        ts.append((time.perf_counter() - t0) * 1e6)
+        assert d["approved"]
+    wall = time.perf_counter() - t_all
+    d = os.path.join(tmp, "gw-data")
+    os.makedirs(d)
+    app, httpd = srv.serve("127.0.0.1", 0, d, os.path.join(tmp, "gw-res"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    import http.client
+    try:
+        app.gateway.mark("BTC-USD", 62_000.5, vol=0.45)
+        app.gateway.set_limits("bench-http-1", {"max_orders_per_minute": 10**4})
+        port = httpd.server_address[1]
+        http_ms = []
+        for i in range(n_http):
+            if i % 300 == 0:
+                app.gateway.mark("BTC-USD", 62_000.5, vol=0.45)
+            body = json.dumps({"symbol": "BTC-USD", "side": "buy" if i % 2 == 0 else "sell", "qty": "0.01"})
+            t0 = time.perf_counter()
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)   # HTTP/1.0 server
+            conn.request("POST", "/api/gateway/order", body=body,
+                         headers={"Content-Type": "application/json", "X-RiskLens-Session": "bench-http-1"})
+            r = conn.getresponse()
+            out = json.loads(r.read())
+            conn.close()
+            http_ms.append((time.perf_counter() - t0) * 1000)
+            assert out["decision"]["approved"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    save("gateway.json", {
+        "env": env(),
+        "workload": f"{n:,} orders (alternating buy/sell 0.01 BTC) through all eight checks and the "
+                    f"simulated fill, one paper account; then {n_http:,} orders over HTTP on loopback "
+                    f"(a new TCP connection per order, as the server speaks HTTP/1.0; the response includes "
+                    f"the full account state)",
+        "check_us_in_process": {k: round(v, 1) for k, v in lat(ts).items()},
+        "checks_per_second_in_process": round(n / wall),
+        "order_round_trip_ms_http": lat(http_ms)})
+
+
 def main():
-    which = sys.argv[1:] or ["engine", "run", "server", "live"]
+    which = sys.argv[1:] or ["engine", "run", "server", "live", "gateway"]
     tmp = tempfile.mkdtemp(prefix="risklens-bench-")
     try:
         if "engine" in which:
@@ -328,6 +384,8 @@ def main():
             bench_server(tmp)
         if "live" in which:
             bench_live(tmp)
+        if "gateway" in which:
+            bench_gateway(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

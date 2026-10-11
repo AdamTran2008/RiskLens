@@ -631,7 +631,7 @@ def render(runs: list[dict], embed: bool = False) -> str:
                  ("invested", "pie", "Invested"), ("metrics", "table", "All metrics"),
                  ("varcheck", "target", "VaR check"), ("luck", "dice", "Luck test"), ("log", "bell", "Risk-rule log"),
                  ("method", "lock", "Method")]
-    nav = "".join(f'<a href="#{i}" data-view="{i}">{icon(ic, "nic")}<span>{t}</span></a>'
+    nav = "".join(f'<a href="#{i}" data-view="{i}" title="{t}">{icon(ic, "nic")}<span>{t}</span></a>'
                   for i, ic, t in nav_items)
 
     secs = [
