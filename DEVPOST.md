@@ -33,13 +33,16 @@ controls it before orders go out, and can prove its own numbers.
   backtesters report, was beaten 125 times when 56 were expected on the days
   a trend strategy held stock, because its cash periods make it shrink. VaR
   built from *today's position × the stock's risk*, the way a risk desk does
-  it, passes.
+  it, passes. Every breach rate comes with its 95% confidence range, and
+  every model gets a quantile (pinball-loss) score, so models are compared
+  on forecast quality, not just on whether they passed.
 * **Deep dive:** the questions a risk manager asks next, each answered with
   numbers and a plain-English verdict: how fat the tails are (3-sigma losses
   ~4× more often than a bell curve says); what each rule does alone (the
   volatility target did the work; the circuit breaker alone made the worst
   fall deeper); whether the result is robust or lucky (25 nearby settings and
-  the two halves of the period); where returns come from (beta, alpha with a
+  the two halves of the period, plus trading costs 3× and 10× higher); where
+  returns come from (beta, alpha with a
   t-statistic, up/down capture); and calm vs turbulent markets. A **Key
   findings** box opens every report.
 * **Luck test:** shuffles the strategy's timing 1,000 times and reports a
@@ -94,7 +97,7 @@ running answer in its place.
   sequences of orders, price moves, limit changes and kill switch presses,
   and checks every limit after every step.
 * **The live replay matches the backtest to the cent.**
-* **169 tests**, run on Python 3.10–3.14 in CI. A mutation script plants **19
+* **175 tests**, run on Python 3.10–3.14 in CI. A mutation script plants **19
   realistic bugs** (look-ahead, ignored kill switch, stale prices, wrong
   p-values…) and the tests catch **19/19**. The tests also caught real bugs
   during the hackathon: a floating-point off-by-one in VaR, and a crash when a

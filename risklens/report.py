@@ -547,30 +547,42 @@ def var_block(runs) -> str:
                   f'<span class="leg"><span class="sw vxbg"></span>Loss beat the forecast</span></div>{figs}')
 
     rows = []
+    scores = [v["quantile_score"] for v in m95.values() if "quantile_score" in v]
+    best_score = min(scores) if scores else None
     for key, v in m95.items():
         w = (c99 or {}).get("models", {}).get(key)
+        rng = (f'<br><span class="muted small">{pct(v["rate"])} ({pct(v["rate_lo"])}–{pct(v["rate_hi"])})</span>'
+               if "rate_lo" in v else "")
+        qs = v.get("quantile_score")
+        qs_td = (f'<td class="num{" best" if qs == best_score else ""}">{qs * 1e4:.2f}</td>' if qs is not None
+                 else '<td class="num">–</td>')
         b = (w or {}).get("basel")
         tag = ' <span class="tag">best fit</span>' if key == best_k else ""
         zone = f'<span class="zone {b["zone"]}">{b["zone"].title()}</span>' if b else "–"
         rows.append(
             f'<tr class="{"bestrow" if key == best_k else ""}"><th>{esc(v["label"])}{tag}</th>'
-            f'<td class="num">{v["exceptions"]} <span class="muted small">/ {v["expected"]:.0f}</span></td>'
+            f'<td class="num">{v["exceptions"]} <span class="muted small">/ {v["expected"]:.0f}</span>{rng}</td>'
             f'<td class="num">{fmt_p(v["kupiec_p"])}</td><td class="num">{fmt_p(v["christoffersen_p"])}</td>'
-            f'<td>{_chip(v["passes"])}</td>'
+            f'<td>{_chip(v["passes"])}</td>{qs_td}'
             + (f'<td class="num">{w["exceptions"]} <span class="muted small">/ {w["expected"]:.0f}</span></td>'
                f'<td>{_chip(w["passes"])}</td><td>{zone}</td>' if w else '<td>–</td><td>–</td><td>–</td>')
             + f'<td class="num">{pct(v["avg_var"], 2)}</td></tr>')
     table = (f'<h3 class="h3">Every model, graded</h3><div class="scroll"><table class="vart"><thead>'
-             f'<tr><th rowspan="2">Model</th><th colspan="4" class="grp">95% VaR</th>'
+             f'<tr><th rowspan="2">Model</th><th colspan="5" class="grp">95% VaR</th>'
              f'<th colspan="3" class="grp">99% VaR</th><th rowspan="2" class="num">Average<br>95% VaR</th></tr>'
              f'<tr><th class="num">Breaches / expected</th><th class="num">Count test p</th>'
-             f'<th class="num">Clustering test p</th><th>Verdict</th><th class="num">Breaches / expected</th>'
+             f'<th class="num">Clustering test p</th><th>Verdict</th><th class="num">Quantile<br>score</th>'
+             f'<th class="num">Breaches / expected</th>'
              f'<th>Verdict</th><th>Basel light</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
              f'<p class="note">Tested on the {days:,} days the strategy held stock'
              + (f' (out of {c95["total_days"]:,}; a day in cash can’t lose money, so counting it would flatter every model)'
                 if in_cash else "")
              + '. A model passes when both the count test (Kupiec) and the clustering test (Christoffersen) '
-               'have p ≥ 0.05; the best fit passes both with the highest combined p-value. '
+               'have p ≥ 0.05; the best fit passes both with the highest combined p-value. Under each breach '
+               'count: the breach rate and its 95% confidence range (Wilson), which shows how much a short test '
+               'can prove. Quantile score: the average pinball loss of the forecasts in basis points, the '
+               'standard score for quantile forecasts; lower is better, and unlike a breach count it rewards '
+               'forecasts that sit close to the real tail (bold: lowest). '
                f'Shown for: <span class="sw s{k}bg"></span>{esc(short_label(main))}.</p>')
     return f'<p class="verdict small-v">{head}</p>{note_html}{charts}{table}'
 
@@ -777,6 +789,25 @@ def robust_block(runs) -> str:
                          _hbar_rows([(l, max(v, 0.0), c) for l, v, c in items], lambda v: f"{v:.2f}"))
     else:
         head = "Buy & hold has no settings to tune, so there is nothing to overfit. "
+    cs = r.get("costs")
+    if cs and len(cs) == 3:
+        base, worst = cs[0], cs[-1]
+        head += (f' With trading costs <b>10× higher</b> ({worst["fee_bps"]:g} bp fee + {worst["slippage_bps"]:g} bp '
+                 f'slippage per trade), annual return goes from {pct(base["cagr"])} to <b>{pct(worst["cagr"])}</b> '
+                 f'and Sharpe from {base["sharpe"]:.2f} to {worst["sharpe"]:.2f}'
+                 + (', so the result survives much worse fills.' if worst["sharpe"] >= 0.75 * base["sharpe"]
+                    else ', so the result depends on cheap trading.'))
+        names = {1: "Your costs", 3: "3× higher", 10: "10× higher"}
+        rows = "".join(
+            f'<tr><th>{names.get(x["mult"], x["mult"])}'
+            f' <span class="muted small">{x["fee_bps"]:g} + {x["slippage_bps"]:g} bp</span></th>'
+            f'<td class="num">{pct(x["cagr"])}</td><td class="num">{x["sharpe"]:.2f}</td>'
+            f'<td class="num">{loss(x["max_drawdown"])}</td><td class="num">{x["trades"]}</td>'
+            f'<td class="num">${x["fees"]:,.0f}</td></tr>' for x in cs)
+        parts.append('<h3 class="h3">Higher trading costs: does it survive worse fills?</h3><div class="scroll"><table>'
+                     '<thead><tr><th>Costs per trade (fee + slippage)</th><th class="num">Annual return</th>'
+                     '<th class="num">Sharpe</th><th class="num">Max drawdown</th><th class="num">Trades</th>'
+                     f'<th class="num">Fees paid</th></tr></thead><tbody>{rows}</tbody></table></div>')
     h, hb = r.get("halves"), r.get("halves_bh")
     if h:
         s1, s2 = h[0]["sharpe"], h[1]["sharpe"]

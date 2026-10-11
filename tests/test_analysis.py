@@ -127,3 +127,28 @@ def test_report_renders_every_deep_dive_page(data, strategy, risk):
     # results saved before the deep dive existed still render
     old = {k: v for k, v in r.items() if k not in ("deep", "risk_models")}
     assert 'id="tails"' in report.render([old])
+
+
+
+@pytest.mark.parametrize("strategy,risk", [
+    ({"name": "sma_cross", "params": {"fast": 20, "slow": 80}}, {"vol_target": 0.15, "max_drawdown": 0.15}),
+    ({"name": "momentum", "params": {"lookback": 60}}, {}),
+])
+def test_cost_stress_rows_match_real_runs_and_costs_only_hurt(data, strategy, risk):
+    c = cfg(strategy=strategy, risk=risk, costs={"fee_bps": 2, "slippage_bps": 3})
+    bars = load_csv(data)
+    res = analysis._run(bars, c, c["risk"])
+    rows = analysis.robustness(bars, c, res)["costs"]
+    assert [(x["mult"], x["fee_bps"], x["slippage_bps"]) for x in rows] == [(1, 2, 3), (3, 6, 9), (10, 20, 30)]
+    base = analysis.stats(metrics.daily_returns(res.equity))
+    assert rows[0]["cagr"] == pytest.approx(base["cagr"]) and rows[0]["fees"] == res.fees_paid / 100
+    assert rows[0]["trades"] > 0
+    assert rows[2]["cagr"] < rows[1]["cagr"] < rows[0]["cagr"]       # dearer trading never helps
+    assert rows[2]["fees"] > rows[0]["fees"]
+
+
+def test_report_shows_cost_stress_and_var_ranges(data):
+    from risklens import report
+    html = report.render([runner.execute(cfg(), data)])
+    assert "Higher trading costs" in html and "10× higher" in html
+    assert "Quantile<br>score" in html and "Wilson" in html

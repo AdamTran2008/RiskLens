@@ -183,3 +183,33 @@ def test_account_history_fails_where_position_based_passes():
     assert not m["pnl_hist"]["passes"] and m["pnl_hist"]["verdict"] == "too optimistic"
     assert m["pos_hist"]["passes"] and m["pos_fhs"]["passes"]
     assert c["best"].startswith("pos_")
+
+
+def test_wilson_interval_by_hand():
+    # 5 breaches in 100 days: centre (5 + 1.92) / 103.84, half-width 1.96 * sqrt(4.75 + 0.96) / 103.84
+    lo, hi = metrics.wilson_interval(5, 100)
+    z = 1.96
+    c = (5 + z * z / 2) / (100 + z * z)
+    h = z * math.sqrt(5 * 95 / 100 + z * z / 4) / (100 + z * z)
+    assert lo == pytest.approx(c - h) and hi == pytest.approx(c + h)
+    assert lo == pytest.approx(0.0215, abs=5e-4) and hi == pytest.approx(0.1118, abs=5e-4)
+    assert metrics.wilson_interval(0, 50)[0] == 0.0                     # never below zero
+    a, b = metrics.wilson_interval(20, 400)                             # more days, same rate: narrower
+    assert b - a < hi - lo
+
+
+def test_quantile_score_by_hand_and_rewards_closer_forecasts():
+    # 95% VaR of 2% (quantile -0.02). Day 1: return +1% (no breach): loss 0.05 * (0.01 + 0.02) = 0.0015.
+    # Day 2: return -3% (breach): (0.05 - 1) * (-0.03 + 0.02) = 0.0095. Average 0.0055.
+    assert metrics.quantile_score([0.01, -0.03], [0.02, 0.02], 0.95) == pytest.approx(0.0055)
+    rng = random.Random(3)
+    rets = [rng.gauss(0, 0.01) for _ in range(5000)]
+    right = metrics.quantile_score(rets, [0.01645] * len(rets), 0.95)  # true 95% quantile of N(0, 1%)
+    assert right < metrics.quantile_score(rets, [0.03] * len(rets), 0.95)     # far too cautious
+    assert right < metrics.quantile_score(rets, [0.005] * len(rets), 0.95)    # far too optimistic
+
+
+def test_grade_includes_range_and_score():
+    g = metrics.grade_var([True, False, False, False], 0.95, [0.01] * 4, ["d"] * 4,
+                          realized=[-0.02, 0.0, 0.01, -0.005])
+    assert g["rate_lo"] < g["rate"] < g["rate_hi"] and "quantile_score" in g

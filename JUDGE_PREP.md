@@ -9,7 +9,7 @@ physically can't see the future, the money balances to the cent every day,
 and every result is reproducible from a hash. It even checks whether its
 own risk estimate was right, the way banks must. And it runs live: every order
 goes through eight pre-trade risk checks against real prices, with a kill
-switch. We proved it with 169 tests, and when we planted 19 bugs, the tests
+switch. We proved it with 175 tests, and when we planted 19 bugs, the tests
 caught all 19."
 
 ## Demo (3 minutes)
@@ -55,7 +55,7 @@ caught all 19."
    shallower in the drawdown chart. When the breaker fires, it shows up here
    in the alert feed." Pause during the COVID crash (early 2020) to show it.
 7. **History:** "Every run is saved and reproducible from its ID."
-8. If asked about correctness: `python -m pytest -q` (169 passed) and
+8. If asked about correctness: `python -m pytest -q` (175 passed) and
    `./scripts/mutation_check.sh` (19/19).
 
 ## Likely questions
@@ -166,4 +166,4 @@ of the 2nd. That's exactly the kind of silent error that makes backtests lie."
 ## Numbers to know
 ~200,000 bars/s · 10-year run simulates in 9 ms · luck test 55% of a run ·
 cached result 3 ms · full analysis 0.92 s · live pipeline 0.64 ms p50 · pre-trade checks 63 µs p50 ·
-169 tests · 19/19 mutations caught · money in integer cents (backtest) and exact fractions (gateway).
+175 tests · 19/19 mutations caught · money in integer cents (backtest) and exact fractions (gateway).

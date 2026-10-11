@@ -3,11 +3,9 @@
 **Risk management for trading strategies: tested through real market
 crashes, checked against live prices, and proven correct by its own tests.**
 
-[![tests](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR-GITHUB-USERNAME/risklens/actions/workflows/tests.yml)
-&nbsp;Python 3.10–3.14 · engine in pure standard-library Python · 169 tests ·
+Python 3.10–3.14 · engine in pure standard-library Python · 175 tests (CI on every push) ·
 19/19 planted bugs caught
 
-**Live demo:** _add your hosted link here (see [Deploy](#deploy))_ ·
 Built at HackRU Fall 2026 for the Lucera Trading Systems Challenge
 
 ![The Risk gateway checking an order against live prices and limits](docs/img/risk-gateway.png)
@@ -83,7 +81,7 @@ python3 -m pip install -r requirements-dev.txt   # pytest, hypothesis (tests onl
 
 ./scripts/demo.sh            # server + client: strategy without vs with risk rules,
                              # prints a comparison table and writes an HTML report
-python3 -m pytest -q         # 169 tests, ~40 s
+python3 -m pytest -q         # 175 tests, ~40 s
 ./scripts/mutation_check.sh  # plants 19 bugs, shows the tests catch every one
 python3 bench/bench.py       # every number in PERFORMANCE.md (~90 s)
 python3 -m risklens.server --open   # the server alone; opens http://127.0.0.1:8765/
@@ -242,7 +240,7 @@ exposure-limit boundary), and we strengthened it.
   (division by zero). The 1,000-year benchmark found it; such days now
   send no order, with a regression test.
 
-Results: **169 tests pass** (`python3 -m pytest -q`, ~40 s; full output in
+Results: **175 tests pass** (`python3 -m pytest -q`, ~40 s; full output in
 `tests/RESULTS.txt`), on CPython 3.10, 3.11, 3.12, 3.13 and 3.14.
 
 ### Metric definitions (all from daily close-to-close equity returns, 252 days/year)
@@ -272,7 +270,16 @@ Results: **169 tests pass** (`python3 -m pytest -q`, ~40 s; full output in
   strategy's daily returns on the stock's (beta, annualized alpha with its
   t-statistic, R²), up/down capture = average strategy return ÷ average stock
   return on the stock's up (down) days; *regimes*: days split into thirds by
-  the stock's volatility over the previous 20 days.
+  the stock's volatility over the previous 20 days; *cost stress*: the same
+  run with fees and slippage 3× and 10× higher, to show whether the result
+  survives worse fills.
+* **VaR forecast quality, beyond breach counts:** each breach rate comes with
+  its 95% confidence range (Wilson score interval), so a short test can't look
+  more convincing than it is, and every model gets a **quantile score**
+  (average pinball loss, lower is better), the standard way to compare
+  quantile forecasts, which also rewards forecasts that sit close to the real
+  tail. The model that passes the coverage tests best and the one with the
+  lowest quantile score need not be the same; the report shows both.
 * **Luck test:** shuffle the strategy's daily exposure across days 1,000 times
   (keeps *how much* it invested, randomizes *when*); p-value = share of
   shuffles whose Sharpe ≥ the real one. Gross of costs, seeded.

@@ -261,11 +261,34 @@ def _basel(hits: list[bool], tdates: list[str]) -> dict | None:
             "share": {z: zones.count(z) / len(zones) for z in ("green", "yellow", "red")}}
 
 
-def grade_var(hits: list[bool], level: float, forecasts: list[float], tdates: list[str]) -> dict:
+def wilson_interval(x: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% confidence range for a breach rate of x out of n (Wilson score
+    interval). Small samples give wide ranges: a "right" rate on few days
+    proves little."""
+    if n <= 0:
+        return 0.0, 1.0
+    c = (x + z * z / 2) / (n + z * z)
+    h = z * math.sqrt(x * (n - x) / n + z * z / 4) / (n + z * z)
+    return max(0.0, c - h), min(1.0, c + h)
+
+
+def quantile_score(returns: list[float], forecasts: list[float], level: float) -> float:
+    """Average pinball (quantile) loss of the VaR forecasts, the standard
+    score for quantile forecasts: lower is better. Unlike a breach count, it
+    also rewards a forecast for being close to the realized tail, not just on
+    the right side of it. VaR v (a loss) is the (1 - level) quantile -v of returns."""
+    p = 1 - level
+    tot = math.fsum((p - (1.0 if r < -v else 0.0)) * (r + v) for r, v in zip(returns, forecasts))
+    return tot / len(returns) if returns else 0.0
+
+
+def grade_var(hits: list[bool], level: float, forecasts: list[float], tdates: list[str],
+              realized: list[float] | None = None) -> dict:
     """The tests a bank must run on its VaR: Kupiec (is the number of
     breaches right?), Christoffersen (are breaches independent, or do they
     cluster?), both together (conditional coverage), and at 99% the Basel
-    traffic light."""
+    traffic light. Also the breach rate's 95% range and, given the realized
+    returns, the quantile score."""
     n, x = len(hits), sum(hits)
     p = 1 - level
     k_lr, k_p = kupiec_pof(n, x, p)
@@ -277,6 +300,9 @@ def grade_var(hits: list[bool], level: float, forecasts: list[float], tdates: li
            "clustered": c_p < 0.05, "cc_lr": k_lr + c_lr, "cc_p": chi2_2_sf(k_lr + c_lr),
            "avg_var": math.fsum(forecasts) / n if n else 0.0,
            "verdict": verdict, "passes": k_p >= 0.05 and c_p >= 0.05}
+    out["rate_lo"], out["rate_hi"] = wilson_interval(x, n)
+    if realized is not None:
+        out["quantile_score"] = quantile_score(realized, forecasts, level)
     if level >= 0.99:
         b = _basel(hits, tdates)
         if b:
@@ -300,7 +326,7 @@ def var_backtest(returns: list[float], dates: list[str], level: float = 0.95,
     tdates = dates[window:]
     hits = [-r > v for r, v in zip(test, fc)]
     out = {"model": model, "level": level, "window": window,
-           **grade_var(hits, level, fc, tdates),
+           **grade_var(hits, level, fc, tdates, realized=test),
            "exception_dates": [d for d, h in zip(tdates, hits) if h]}
     if keep_series:
         out["series"] = {"dates": tdates, "ret": [round(r, 6) for r in test],
@@ -351,7 +377,8 @@ def compare_risk_models(pnl: list[float], asset: list[float], exposure: list[flo
         full[key] = fc
         ft = [fc[i - window] for i in test]
         hits = [-pnl[i] > f for i, f in zip(test, ft)]
-        models[key] = {"label": label, "base": base, "model": model, **grade_var(hits, level, ft, tdates)}
+        models[key] = {"label": label, "base": base, "model": model,
+                       **grade_var(hits, level, ft, tdates, realized=[pnl[i] for i in test])}
     best = max(models, key=lambda k: (models[k]["passes"], models[k]["cc_p"]))
     out = {"level": level, "window": window, "test_days": len(test), "total_days": n - window,
            "models": models, "best": best}

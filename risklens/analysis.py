@@ -217,6 +217,16 @@ def robustness(bars, cfg, res) -> dict:
             "sharpe_min": sh[-1], "sharpe_max": sh[0], "sharpe_median": sh[len(sh) // 2],
             "chosen_rank": 1 + sh.index(mine["sharpe"]) if mine else None,
         })
+    # the same run with trading costs 3x and 10x higher: does the result survive worse fills?
+    c = cfg["costs"]
+    out["costs"] = []
+    for mult in (1, 3, 10):
+        cc = dict(cfg, costs={"fee_bps": c["fee_bps"] * mult, "slippage_bps": c["slippage_bps"] * mult})
+        r = _run(bars, cc, risk)
+        st = stats(metrics.daily_returns(r.equity))
+        out["costs"].append({"mult": mult, "fee_bps": c["fee_bps"] * mult, "slippage_bps": c["slippage_bps"] * mult,
+                             "sharpe": st["sharpe"], "max_drawdown": st["max_drawdown"], "cagr": st["cagr"],
+                             "trades": len(r.trades), "fees": r.fees_paid / 100})
     rets = metrics.daily_returns(res.equity)
     d = res.dates[1:]
     if len(rets) >= 120:
