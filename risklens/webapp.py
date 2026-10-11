@@ -105,6 +105,12 @@ padding:8px 14px;cursor:pointer;font-weight:500;text-decoration:none;color:var(-
 .note{color:var(--ink2);font-size:14px}
 .empty{padding:28px;text-align:center;color:var(--ink2)}
 .empty code{background:var(--soft);padding:2px 6px;border-radius:6px}
+/* quick start */
+.starts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.start{display:flex;gap:14px;align-items:center;padding:16px 18px;text-decoration:none;color:var(--ink)}
+.start:hover{border-color:var(--accent)}.start b{display:block;font-size:16px}.start span{color:var(--ink2);font-size:13px}
+.start .si{width:42px;height:42px;border-radius:12px;background:var(--accent2);color:var(--accent);display:grid;place-items:center;flex:none}
+@media (max-width:900px){.starts{grid-template-columns:1fr}}
 /* analyze */
 .an{display:grid;grid-template-columns:340px minmax(0,1fr);gap:20px;align-items:start}
 .form{padding:20px;position:sticky;top:16px}
@@ -286,12 +292,12 @@ td.num,th.num{text-align:right}
 <div class="shell">
 <aside class="nav" aria-label="Main">
   <div class="brand"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg><span>RiskLens</span></div>
-  <a href="#/overview" data-p="overview"><i data-i="grid"></i><span>Overview</span></a>
-  <a href="#/market" data-p="market"><i data-i="radio"></i><span>Live market</span></a>
-  <a href="#/gateway" data-p="gateway"><i data-i="gate"></i><span>Risk gateway</span></a>
-  <a href="#/analyze" data-p="analyze"><i data-i="sliders"></i><span>Analyze</span></a>
-  <a href="#/replay" data-p="replay"><i data-i="pulse"></i><span>Replay</span></a>
-  <a href="#/history" data-p="history"><i data-i="clock"></i><span>History</span></a>
+  <a href="#/overview" data-p="overview" title="Overview (press 1)"><i data-i="grid"></i><span>Overview</span></a>
+  <a href="#/market" data-p="market" title="Live market (press 2)"><i data-i="radio"></i><span>Live market</span></a>
+  <a href="#/gateway" data-p="gateway" title="Risk gateway (press 3)"><i data-i="gate"></i><span>Risk gateway</span></a>
+  <a href="#/analyze" data-p="analyze" title="Analyze (press 4)"><i data-i="sliders"></i><span>Analyze</span></a>
+  <a href="#/replay" data-p="replay" title="Replay (press 5)"><i data-i="pulse"></i><span>Replay</span></a>
+  <a href="#/history" data-p="history" title="History (press 6)"><i data-i="clock"></i><span>History</span></a>
   <div class="navfoot"><span class="dot" id="hdot"></span><b id="hstat">Engine online</b><br>
   engine <span id="hver">__VERSION__</span><br><span id="hcount"></span><br><br>Simulated results, no real orders. Not investment advice.</div>
 </aside>
@@ -319,6 +325,11 @@ td.num,th.num{text-align:right}
   </div>
 
   <section class="page" id="p-overview">
+    <div class="starts">
+      <a class="card start" href="#/analyze"><span class="si"><i data-i="sliders"></i></span><div><b>Analyze a stock</b><span>Backtest it with and without risk rules, then dig into the risk</span></div></a>
+      <a class="card start" href="#/market"><span class="si"><i data-i="radio"></i></span><div><b>Watch live risk</b><span>Real Bitcoin trades from Coinbase, risk recomputed on every trade</span></div></a>
+      <a class="card start" href="#/gateway"><span class="si"><i data-i="gate"></i></span><div><b>Try the risk gateway</b><span>Send an order through eight pre-trade checks, or hit the kill switch</span></div></a>
+    </div>
     <div class="cards" id="cards"><div class="card empty">Loading datasets…</div></div>
   </section>
 
@@ -539,8 +550,11 @@ function route(){const p=(location.hash.match(/#\/(\w+)/)||[])[1]||'overview';co
  $('ptitle').textContent=PAGES[k][0];$('psub').textContent=PAGES[k][1];if(route.last!==k){window.scrollTo(0,0);route.last=k}
  $('symbar').classList.toggle('on',['overview','analyze','replay'].includes(k));$('symhint').style.display=k==='overview'?'none':'';
  if(k==='analyze'&&F.sym&&A.shown!==F.sym)runAnalysis();
- if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='gateway')gOpen(); if(k==='overview')loadOverview();}
+ if(k==='history')loadHistory(); if(k==='replay'){liveCfgChip();schedule()} if(k==='market'){mCfgChip();schedM()} if(k==='gateway')gOpen(); if(k==='overview')loadOverview();
+ if((k==='market'||k==='gateway')&&!M.on&&!M.userStopped)mConnect();}   // live price starts by itself (unless you pressed Disconnect)
 window.addEventListener('hashchange',route);
+document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,[contenteditable]')||e.altKey||e.ctrlKey||e.metaKey)return;
+ const k=['overview','market','gateway','analyze','replay','history'][+e.key-1];if(k&&e.key>='1'&&e.key<='6')location.hash='#/'+k});
 
 /* ---------------- health ---------------- */
 async function health(){try{const h=await api('/health');$('hdot').className='dot';$('hstat').textContent=h.public?'Public demo online':'Engine online';
@@ -781,7 +795,7 @@ function mdraw(){const closes=M.bars.map(b=>b[1]);let hi=-Infinity;const high=M.
   hline:lim!=null&&Math.min(...dd,0)<lim*0.5?lim:null,fmt:(v,s)=>Math.abs(v)<1e-12?'0%':(v*100).toFixed(s>=0.01?0:s>=0.001?1:2).replace('-','−')+'%'})}
 window.addEventListener('resize',schedM);
 $('m-sym').value=MS.sym;$('m-src').value=MS.src;$('m-symbig').textContent=MS.sym;
-$('m-go').addEventListener('click',()=>{M.on?mStop():mConnect()});
+$('m-go').addEventListener('click',()=>{if(M.on){M.userStopped=true;mStop()}else{M.userStopped=false;mConnect()}});
 $('m-sym').addEventListener('keydown',e=>{if(e.key==='Enter')mConnect()});
 function liveSyms(){const st=Object.keys(DATASETS).filter(x=>x!=='SYNTH');
  return['BTC-USD','ETH-USD','SOL-USD',...(st.length?st:['SPY','AAPL'])].filter((x,i,a)=>a.indexOf(x)===i).slice(0,12)}
